@@ -12,7 +12,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-// Modified by Soenan: the static musl SDK lacks the generic distributed argument-decoder dispatch thunk.
+// Modified by Soenan: Swift 6.4.1's Static Linux SDK builds Distributed without
+// library evolution, but generated distributed target accessors still reference
+// its absent decodeNextArgument protocol dispatch thunk. See:
+// https://github.com/swiftlang/swift/issues/93195
+//
+// https://github.com/swiftlang/swift/pull/93503 proposes dispatch through the
+// witness table for non-resilient protocols and may resolve this musl failure.
+// Before removing this guard with a toolchain containing that fix, verify
+// linking and remote WorkerPool.submit on amd64 and arm64. The fix is untested here.
 #if !canImport(Musl)
 import Distributed
 import Logging
