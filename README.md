@@ -56,6 +56,8 @@ This fork adds musl platform imports, pointer-based `pthread_t` handling, and st
 
 On musl, `WorkerPool`, `DistributedWorker`, and their settings/error types are not available: the static `libswiftDistributed` lacks the generic `decodeNextArgument` dispatch thunk emitted for that actor. Cluster membership, distributed actor calls, receptionists, and lifecycle watching remain available. No replacement decoder or local-only transport is supplied.
 
+The `cluster.members` gauges also distinguish `status="up"` from `status="joining"` instead of writing both counts into the joining series.
+
 ## Development
 
 This library requires **beta** releases of Swift (5.7+) and Xcode to function property as the `distributed actor` feature is part of that Swift release.

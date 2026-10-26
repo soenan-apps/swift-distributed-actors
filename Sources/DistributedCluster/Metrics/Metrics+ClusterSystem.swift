@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+// Modified by Soenan to distinguish up members from joining members.
 import DistributedActorsConcurrencyHelpers
 import Metrics
 import SWIM
@@ -241,7 +242,7 @@ final class ClusterSystemMetrics {
         let clusterMembersLabel = settings.makeLabel("cluster", "members")
         self._cluster_members = .init(label: clusterMembersLabel)
         self._cluster_members_joining = .init(label: clusterMembersLabel, dimensions: [("status", Cluster.MemberStatus.joining.rawValue)])
-        self._cluster_members_up = .init(label: clusterMembersLabel, dimensions: [("status", Cluster.MemberStatus.joining.rawValue)])
+        self._cluster_members_up = .init(label: clusterMembersLabel, dimensions: [("status", Cluster.MemberStatus.up.rawValue)])
         self._cluster_members_leaving = .init(label: clusterMembersLabel, dimensions: [("status", Cluster.MemberStatus.leaving.rawValue)])
         self._cluster_members_down = .init(label: clusterMembersLabel, dimensions: [("status", Cluster.MemberStatus.down.rawValue)])
         self._cluster_members_removed = .init(label: clusterMembersLabel, dimensions: [("status", Cluster.MemberStatus.removed.rawValue)])  // TODO: this is equal to number of stored tombstones kind of
