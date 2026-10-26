@@ -12,6 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+// Modified by Soenan: the static musl SDK lacks the generic distributed argument-decoder dispatch thunk.
+#if !canImport(Musl)
 import Distributed
 import Logging
 import OrderedCollections
@@ -388,3 +390,4 @@ public struct WorkerPoolSettings<Worker: DistributedWorker> where Worker.ActorSy
         return self
     }
 }
+#endif

@@ -8,6 +8,7 @@ A peer-to-peer cluster actor system implementation for Swift.
 * [Introduction](#introduction)
 * [Documentation](#documentation)
 * [Development](#development)
+* [Static Linux SDK](#static-linux-sdk)
 
 ## Introduction
 
@@ -48,6 +49,12 @@ You can run it all in a single node (`swift run --package-path Samples/ SampleDi
 Please refer to the rendered docc [reference documentation](https://apple.github.io/swift-distributed-actors/) to learn about distributed actors and how to use this library and its various features.
 
 > **Note:** Documentation is still work in progress, please feel free to submit issues or patches about missing or unclear documentation.
+
+## Static Linux SDK
+
+This fork adds musl platform imports, pointer-based `pthread_t` handling, and stack unwinding without `execinfo.h` for the Swift 6.4.1 Static Linux SDK. The upstream package targets and Darwin/glibc implementations are retained.
+
+On musl, `WorkerPool`, `DistributedWorker`, and their settings/error types are not available: the static `libswiftDistributed` lacks the generic `decodeNextArgument` dispatch thunk emitted for that actor. Cluster membership, distributed actor calls, receptionists, and lifecycle watching remain available. No replacement decoder or local-only transport is supplied.
 
 ## Development
 
