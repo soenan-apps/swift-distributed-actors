@@ -127,13 +127,18 @@ public final class _Mutex {
 ///
 /// Is NOT intended as a general purpose future or promise like structure,
 /// it is our most modestly priced receptacle, after all.
-internal final class BlockingReceptacle<Value> {
+internal final class BlockingReceptacle<Value: Sendable>: @unchecked Sendable {
     @usableFromInline
     let lock = _Mutex()
     @usableFromInline
     let notEmpty = _Condition()
 
     private var _value: Value?
+    private var asyncWaiters: Set<ClusterCancellableCheckedContinuation<Value>> = []
+
+    var isCompleted: Bool {
+        self.lock.synchronized { self._value != nil }
+    }
 
     /// Offer a value to the Receptacle -- only once. Further offers will result in Faults.
     ///
@@ -141,14 +146,20 @@ internal final class BlockingReceptacle<Value> {
     /// - Faults: when offered a value a second time! This is considered a programmer error,
     ///           make sure to always correctly only offer a single value to the receptacle.
     func offerOnce(_ value: Value) {
-        self.lock.synchronized {
+        let waiters = self.lock.synchronized {
             if self._value != nil {
                 fatalError(
                     "BlockingReceptacle can only be offered once. Already was offered [\(self._value, orElse: "no-value")] before, " + "and can not accept new offer: [\(value)]!"
                 )
             }
             self._value = value
+            let waiters = self.asyncWaiters
+            self.asyncWaiters = []
             self.notEmpty.signalAll()
+            return waiters
+        }
+        for waiter in waiters {
+            waiter.resume(returning: value)
         }
     }
 
@@ -173,6 +184,28 @@ internal final class BlockingReceptacle<Value> {
                     return v
                 }
                 self.notEmpty.wait(self.lock)
+            }
+        }
+    }
+
+    func wait() async throws -> Value {
+        try await _withClusterCancellableCheckedContinuation { waiter in
+            waiter.onCancel { waiter in
+                self.lock.synchronized {
+                    _ = self.asyncWaiters.remove(waiter)
+                }
+            }
+            let value: Value? = self.lock.synchronized {
+                if let value = self._value {
+                    return value
+                }
+                if !waiter.isCancelled {
+                    self.asyncWaiters.insert(waiter)
+                }
+                return nil
+            }
+            if let value {
+                waiter.resume(returning: value)
             }
         }
     }

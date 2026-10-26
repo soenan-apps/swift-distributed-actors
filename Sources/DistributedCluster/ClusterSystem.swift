@@ -186,7 +186,7 @@ public class ClusterSystem: DistributedActorSystem, @unchecked Sendable {
 
     // ==== ----------------------------------------------------------------------------------------------------------------
     // MARK: Shutdown
-    private var shutdownReceptacle = BlockingReceptacle<Error?>()
+    private let shutdownReceptacle = BlockingReceptacle<Result<Void, Error>>()
     internal let shutdownSemaphore = DispatchSemaphore(value: 1)
 
     /// Greater than 0 shutdown has been initiated / is in progress.
@@ -413,13 +413,9 @@ public class ClusterSystem: DistributedActorSystem, @unchecked Sendable {
         self.log.info("Parking actor system \(howLongParkingMsg)...")
 
         if let maxParkingTime = parkTimeout {
-            if let error = self.shutdownReceptacle.wait(atMost: maxParkingTime).flatMap({ $0 }) {
-                throw error
-            }
+            try self.shutdownReceptacle.wait(atMost: maxParkingTime)?.get()
         } else {
-            if let error = self.shutdownReceptacle.wait() {
-                throw error
-            }
+            try self.shutdownReceptacle.wait().get()
         }
     }
 
@@ -436,34 +432,25 @@ public class ClusterSystem: DistributedActorSystem, @unchecked Sendable {
 
     /// Object that can be awaited on until the system has completed shutting down.
     public struct Shutdown {
-        private let receptacle: BlockingReceptacle<Error?>
+        private let receptacle: BlockingReceptacle<Result<Void, Error>>
 
-        init(receptacle: BlockingReceptacle<Error?>) {
+        init(receptacle: BlockingReceptacle<Result<Void, Error>>) {
             self.receptacle = receptacle
         }
 
         @available(*, deprecated, message: "will be replaced by distributed actor / closure version")
         public func wait(atMost timeout: Duration) throws {
-            if let error = self.receptacle.wait(atMost: timeout).flatMap({ $0 }) {
-                throw error
-            }
+            try self.receptacle.wait(atMost: timeout)?.get()
         }
 
         @available(*, deprecated, message: "will be replaced by distributed actor / closure version")
         public func wait() throws {
-            if let error = self.receptacle.wait() {
-                throw error
-            }
+            try self.receptacle.wait().get()
         }
 
         /// Suspend until the system has completed its shutdown and is terminated.
         public func wait() async throws {
-            // TODO: implement without blocking the internal task;
-            try await Task.detached {
-                if let error = self.receptacle.wait() {
-                    throw error
-                }
-            }.value
+            try await self.receptacle.wait().get()
         }
     }
 
@@ -474,16 +461,15 @@ public class ClusterSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    /// Returns `true` if the system was already successfully terminated (i.e. awaiting ``terminated`` would resume immediately).
+    /// Returns `true` once shutdown has completed, including when it failed.
     public var isTerminated: Bool {
-        self.shutdownFlag.load(ordering: .relaxed) > 0
+        self.shutdownReceptacle.isCompleted
     }
 
     /// Forcefully stops this actor system and all actors that live within it.
-    /// This is an asynchronous operation and will be executed on a separate thread.
+    /// This call blocks while shutting down the system's dispatchers and event loops.
     ///
-    /// You can use `shutdown().wait()` to synchronously await on the system's termination,
-    /// or provide a callback to be executed after the system has completed it's shutdown.
+    /// The returned handle and ``terminated`` expose the same completion result.
     ///
     /// - Returns: A `Shutdown` value that can be waited upon until the system has completed the shutdown.
     @discardableResult
@@ -544,7 +530,7 @@ public class ClusterSystem: DistributedActorSystem, @unchecked Sendable {
             try self._eventLoopGroup.syncShutdownGracefully()
             // self._receptionistRef = self.deadLetters.adapted()
         } catch {
-            self.shutdownReceptacle.offerOnce(error)
+            self.shutdownReceptacle.offerOnce(.failure(error))
             throw error
         }
 
@@ -557,7 +543,7 @@ public class ClusterSystem: DistributedActorSystem, @unchecked Sendable {
 
         _ = self._clusterStore.storeIfNilThenLoad(Box(nil))
 
-        self.shutdownReceptacle.offerOnce(nil)
+        self.shutdownReceptacle.offerOnce(.success(()))
 
         return Shutdown(receptacle: self.shutdownReceptacle)
     }

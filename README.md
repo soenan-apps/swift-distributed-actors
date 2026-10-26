@@ -50,6 +50,12 @@ Please refer to the rendered docc [reference documentation](https://apple.github
 
 > **Note:** Documentation is still work in progress, please feel free to submit issues or patches about missing or unclear documentation.
 
+### Shutdown
+
+`ClusterSystem.terminated` and the asynchronous `Shutdown.wait()` suspend without blocking the cooperative executor. Cancelling a waiter only cancels that wait; it does not shut down the cluster. All waiters observe the same shutdown result, including a failure.
+
+`ClusterSystem.shutdown()` remains synchronous and can block while closing dispatchers and event loops. Call it from an owned blocking execution context, then await the shared termination result before releasing dependent resources.
+
 ## Static Linux SDK
 
 This fork adds musl platform imports, pointer-based `pthread_t` handling, and stack unwinding without `execinfo.h` for the Swift 6.4.1 Static Linux SDK. The upstream package targets and Darwin/glibc implementations are retained.
