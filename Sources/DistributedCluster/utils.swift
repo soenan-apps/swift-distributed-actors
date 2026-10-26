@@ -16,6 +16,15 @@ import CDistributedActorsMailbox  // for backtrace
 import DistributedActorsConcurrencyHelpers
 import Foundation
 
+// Modified by Soenan for explicit pthread imports on musl.
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
+
 /// `_undefined()` pretends to be able to produce a value of any type `T` which can
 /// be very useful whilst writing a program. It happens that you need a value
 /// (which can be a function as well) of a certain type but you can't produce it

@@ -16,10 +16,13 @@ import Atomics
 import DistributedActorsConcurrencyHelpers
 import NIO
 
+// Modified by Soenan for musl imports and pointer-based pthread_t.
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(Musl)
+import Musl
 #endif
 
 /// Not intended for general use.
@@ -56,7 +59,7 @@ public class _Thread {
             }
         )
 
-        #if os(Linux)
+        #if canImport(Glibc)
         var t = pthread_t()
         #else
         var t: pthread_t?
@@ -67,7 +70,7 @@ public class _Thread {
             throw ThreadError.threadCreationFailed
         }
 
-        #if os(Linux)
+        #if canImport(Glibc)
         self.thread = t
         #else
         self.thread = t!

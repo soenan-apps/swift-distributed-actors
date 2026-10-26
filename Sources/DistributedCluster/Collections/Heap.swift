@@ -28,10 +28,13 @@
 
 // Based on https://raw.githubusercontent.com/apple/swift-nio/bf2598d19359e43b4cfaffaff250986ebe677721/Sources/NIO/Heap.swift
 
+// Modified by Soenan for musl platform support.
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(Musl)
+import Musl
 #endif
 
 internal enum HeapType {
