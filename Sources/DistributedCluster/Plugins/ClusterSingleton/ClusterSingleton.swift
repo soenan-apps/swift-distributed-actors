@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Distributed
 import Logging
@@ -22,14 +22,14 @@ import struct Foundation.UUID
 // MARK: Cluster singleton
 
 /// A _cluster singleton_ is a conceptual distributed actor that is guaranteed to have at-most one
-/// instance within the cluster system among all of its ``Cluster/MemberStatus/up`` members.
+/// instance within the cluster system among all of its ``Cluster/MemberStatus/operational`` members.
 ///
 /// > Note: This guarantee does not extend to _down_ members, because a down member is not part of the cluster anymore.
 ///
 /// To create a managed singleton you must use the ``ClusterSingletonPlugin``,
 /// and have the instantiation and lifecycle of the actor be managed by the plugin.
 ///
-/// To host a distributed cluster singleton, use the ``ClusterSingletonPlugin/host(_:name:settings:makeInstance:)`` method.
+/// To host one, use ``ClusterSingletonPlugin/host(_:name:settings:makeInstance:)``.
 ///
 public protocol ClusterSingleton: Codable, DistributedActor where ActorSystem == ClusterSystem {
     /// The singleton is now active, and should perform its duties.
@@ -48,11 +48,13 @@ public protocol ClusterSingleton: Codable, DistributedActor where ActorSystem ==
 }
 
 extension ClusterSingleton {
-    public func activateSingleton() async {
+    /// Default activation requires no additional work.
+    public func activateSingleton() {
         // nothing by default
     }
 
-    public func passivateSingleton() async {
+    /// Default passivation requires no additional work.
+    public func passivateSingleton() {
         // nothing by default
     }
 }

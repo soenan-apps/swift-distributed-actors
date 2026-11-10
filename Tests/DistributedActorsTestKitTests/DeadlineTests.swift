@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Foundation
 import XCTest
@@ -18,11 +18,11 @@ import XCTest
 @testable import DistributedActorsTestKit
 @testable import DistributedCluster
 
-class DeadlineTests: XCTestCase {
-    func test_deadline_nowIsNotPastNow() {
-        let now = ContinuousClock.Instant.now
-        let beforeDeadline = now - .seconds(100)
-        let pastDeadline = now + .seconds(10)
+internal final class DeadlineTests: XCTestCase {
+    internal func test_deadline_nowIsNotPastNow() {
+        let now: ContinuousClock.Instant = ContinuousClock.Instant.now
+        let beforeDeadline: ContinuousClock.Instant = now - .seconds(100)
+        let pastDeadline: ContinuousClock.Instant = now + .seconds(10)
 
         now.isBefore(.distantPast).shouldBeFalse()
         now.isBefore(beforeDeadline).shouldBeFalse()
@@ -31,10 +31,10 @@ class DeadlineTests: XCTestCase {
         now.isBefore(.distantFuture).shouldBeTrue()
     }
 
-    func test_deadline_hasTimeLeft() {
-        let now = ContinuousClock.Instant.now
-        let beforeDeadline = now - .seconds(100)
-        let pastDeadline = now + .seconds(10)
+    internal func test_deadline_hasTimeLeft() {
+        let now: ContinuousClock.Instant = ContinuousClock.Instant.now
+        let beforeDeadline: ContinuousClock.Instant = now - .seconds(100)
+        let pastDeadline: ContinuousClock.Instant = now + .seconds(10)
 
         now.hasTimeLeft(until: .distantPast).shouldBeTrue()
         now.hasTimeLeft(until: beforeDeadline).shouldBeTrue()
@@ -43,18 +43,18 @@ class DeadlineTests: XCTestCase {
         now.hasTimeLeft(until: .distantFuture).shouldBeFalse()
     }
 
-    func test_deadline_subtracting() {
-        let older = ContinuousClock.Instant.now
+    internal func test_deadline_subtracting() {
+        let older: ContinuousClock.Instant = ContinuousClock.Instant.now
         Thread.sleep(until: Date().addingTimeInterval(0.02))
-        let newer = ContinuousClock.Instant.now
+        let newer: ContinuousClock.Instant = ContinuousClock.Instant.now
 
         XCTAssertLessThan(older - newer, .nanoseconds(0))
         XCTAssertGreaterThan(newer - older, .nanoseconds(0))
     }
 
-    func test_fromNow() {
-        let now = ContinuousClock.Instant.now
-        let deadline = ContinuousClock.Instant.fromNow(.seconds(3))
+    internal func test_fromNow() {
+        let now: ContinuousClock.Instant = ContinuousClock.Instant.now
+        let deadline: ContinuousClock.Instant = ContinuousClock.Instant.fromNow(.seconds(3))
 
         XCTAssert(now < deadline)
     }

@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,9 +10,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the SwiftNIO open source project
 //
@@ -24,7 +24,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Distributed
 import DistributedCluster
@@ -32,64 +32,18 @@ import NIOCore
 import NIOFoundationCompat
 import NIOPosix
 
+import class Foundation.FileHandle
 import class Foundation.Pipe
 
-internal struct OutputGrepper {
-    internal var result: EventLoopFuture<ProgramOutput>
-    internal var processOutputPipe: NIOFileHandle
+internal struct ProgramOutput: Sendable {
+    internal let logs: [String]
+    internal var expectedExit: Bool = false
 
-    internal static func make(
-        nodeName: String,
-        group: EventLoopGroup,
-        programLogRecipient: (any ProgramLogReceiver)? = nil
-    ) -> OutputGrepper {
-        let processToChannel = Pipe()
-        let deadPipe = Pipe()  // just so we have an output...
-
-        let eventLoop = group.next()
-        let outputPromise = eventLoop.makePromise(of: ProgramOutput.self)
-
-        // We gotta `dup` everything because Pipe is bad and closes file descriptors on `deinit` :(
-        let channelFuture = NIOPipeBootstrap(group: group)
-            .channelOption(ChannelOptions.allowRemoteHalfClosure, value: true)
-            .channelInitializer { channel in
-                channel.pipeline.addHandlers(
-                    [
-                        ByteToMessageHandler(NewlineFramer()),
-                        GrepHandler(
-                            nodeName: nodeName,
-                            promise: outputPromise,
-                            programLogRecipient: programLogRecipient
-                        ),
-                    ]
-                )
-            }
-            .takingOwnershipOfDescriptors(
-                input: dup(processToChannel.fileHandleForReading.fileDescriptor),
-                output: dup(deadPipe.fileHandleForWriting.fileDescriptor)
-            )
-        let processOutputPipe = NIOFileHandle(descriptor: dup(processToChannel.fileHandleForWriting.fileDescriptor))
-        processToChannel.fileHandleForReading.closeFile()
-        processToChannel.fileHandleForWriting.closeFile()
-        deadPipe.fileHandleForReading.closeFile()
-        deadPipe.fileHandleForWriting.closeFile()
-        channelFuture.cascadeFailure(to: outputPromise)
-        return OutputGrepper(
-            result: outputPromise.futureResult,
-            processOutputPipe: processOutputPipe
-        )
-    }
-}
-
-struct ProgramOutput: Sendable {
-    let logs: [String]
-    var expectedExit: Bool = false
-
-    init(logs: [String]) {
+    internal init(logs: [String]) {
         self.logs = logs
     }
 
-    init(logs: [String], expectedExit: Bool) {
+    internal init(logs: [String], expectedExit: Bool) {
         self.logs = logs
         self.expectedExit = expectedExit
     }
@@ -120,30 +74,37 @@ private final class GrepHandler: ChannelInboundHandler {
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        let line = self.unwrapInboundIn(data)
+        let line: String = self.unwrapInboundIn(data)
 
         if let receiver = self.programLogReceiver {
             // send to receiver
-            Task {  // FIXME: ordering is messed up here, isn't it.
-                try await receiver.logProgramOutput(line: line)
+            let outputPromise: EventLoopPromise<ProgramOutput> = self.promise
+            Task {
+                do {
+                    try await receiver.logProgramOutput(line: line)
+                } catch {
+                    outputPromise.fail(error)
+                }
             }
         } else {
             // accumulate locally
             logs.append(line)
         }
-        // TODO: send to log recipient
 
         // Detect crashes
-        if line.lowercased().contains("fatal error") || line.lowercased().contains("precondition failed") || line.lowercased().contains("assertion failed") {
+        let lowercaseLine: String = line.lowercased()
+        if lowercaseLine.contains("fatal error")
+            || lowercaseLine.contains("precondition failed")
+            || lowercaseLine.contains("assertion failed")
+        {
             if line.contains("MULTI-NODE-EXPECTED-EXIT") {
                 self.promise.succeed(.init(logs: logs, expectedExit: true))
                 context.close(promise: nil)
                 return
-            } else {
-                self.promise.fail(MultiNodeProgramError(message: line, completeOutput: self.logs))
-                self.logs = []
-                context.close(promise: nil)
             }
+            self.promise.fail(MultiNodeProgramError(message: line, completeOutput: self.logs))
+            self.logs = []
+            context.close(promise: nil)
         }
     }
 
@@ -154,35 +115,35 @@ private final class GrepHandler: ChannelInboundHandler {
         }
     }
 
-    func handlerRemoved(context: ChannelHandlerContext) {
+    func handlerRemoved(context _: ChannelHandlerContext) {
         self.promise.fail(ChannelError.alreadyClosed)
     }
 }
 
-protocol ProgramLogReceiver {
+internal protocol ProgramLogReceiver {
     func logProgramOutput(line: String) async throws
 }
 
-distributed actor DistributedProgramLogReceiver: ProgramLogReceiver {
-    typealias ActorSystem = ClusterSystem
+internal distributed actor DistributedProgramLogReceiver: ProgramLogReceiver {
+    internal typealias ActorSystem = ClusterSystem
 
-    var logs: [String] = []
+    internal var logs: [String] = []
 
-    distributed func logProgramOutput(line: String) {
+    internal distributed func logProgramOutput(line: String) {
         self.logs.append(line)
     }
 
-    func dumpOutput() {
+    internal func dumpOutput() {
         for line in self.logs {
             print("[dump] \(line)")
         }
     }
 }
 
-struct MultiNodeProgramError: Error, CustomStringConvertible {
-    let message: String
-    let completeOutput: [String]
-    var description: String {
+internal struct MultiNodeProgramError: Error, CustomStringConvertible {
+    internal let message: String
+    internal let completeOutput: [String]
+    internal var description: String {
         "\(Self.self)(\(self.message), completeOutput: <\(self.completeOutput.count) lines>)"
     }
 }
@@ -190,13 +151,67 @@ struct MultiNodeProgramError: Error, CustomStringConvertible {
 private struct NewlineFramer: ByteToMessageDecoder {
     typealias InboundOut = String
 
-    func decode(context: ChannelHandlerContext, buffer: inout ByteBuffer) throws -> DecodingState {
+    func decode(context: ChannelHandlerContext, buffer: inout ByteBuffer) -> DecodingState {
         if let firstNewline = buffer.readableBytesView.firstIndex(of: UInt8(ascii: "\n")) {
-            let length = firstNewline - buffer.readerIndex + 1
-            context.fireChannelRead(self.wrapInboundOut(String(buffer.readString(length: length)!.dropLast())))
+            let length: Int = firstNewline - buffer.readerIndex + 1
+            guard let line = buffer.readString(length: length) else {
+                preconditionFailure("The newline frame must be within readable bytes")
+            }
+            context.fireChannelRead(self.wrapInboundOut(String(line.dropLast())))
             return .continue
-        } else {
-            return .needMoreData
         }
+        return .needMoreData
+    }
+}
+
+internal struct OutputGrepper {
+    internal var result: EventLoopFuture<ProgramOutput>
+    internal var processOutputPipe: FileHandle
+
+    internal static func make(
+        nodeName: String,
+        group: EventLoopGroup,
+        programLogRecipient: (any ProgramLogReceiver)? = nil
+    ) -> Self {
+        let processToChannel: Pipe = Pipe()
+        let deadPipe: Pipe = Pipe()  // just so we have an output...
+
+        let eventLoop: any EventLoop = group.next()
+        let outputPromise: EventLoopPromise<ProgramOutput> = eventLoop.makePromise(of: ProgramOutput.self)
+
+        // We gotta `dup` everything because Pipe is bad and closes file descriptors on `deinit` :(
+        let channelFuture: EventLoopFuture<any Channel> = NIOPipeBootstrap(group: group)
+            .channelOption(ChannelOptions.allowRemoteHalfClosure, value: true)
+            .channelInitializer { channel in
+                channel.eventLoop.makeCompletedFuture {
+                    try channel.pipeline.syncOperations.addHandlers(
+                        [
+                            ByteToMessageHandler(NewlineFramer()),
+                            GrepHandler(
+                                nodeName: nodeName,
+                                promise: outputPromise,
+                                programLogRecipient: programLogRecipient
+                            ),
+                        ]
+                    )
+                }
+            }
+            .takingOwnershipOfDescriptors(
+                input: dup(processToChannel.fileHandleForReading.fileDescriptor),
+                output: dup(deadPipe.fileHandleForWriting.fileDescriptor)
+            )
+        let outputHandle: FileHandle = FileHandle(
+            fileDescriptor: dup(processToChannel.fileHandleForWriting.fileDescriptor),
+            closeOnDealloc: true
+        )
+        processToChannel.fileHandleForReading.closeFile()
+        processToChannel.fileHandleForWriting.closeFile()
+        deadPipe.fileHandleForReading.closeFile()
+        deadPipe.fileHandleForWriting.closeFile()
+        channelFuture.cascadeFailure(to: outputPromise)
+        return Self(
+            result: outputPromise.futureResult,
+            processOutputPipe: outputHandle
+        )
     }
 }

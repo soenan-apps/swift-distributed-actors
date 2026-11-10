@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import NIO
 
@@ -20,45 +20,40 @@ import NIO
 ///
 /// Conceptually serialization is performed on dedicated "lanes" which correspond to the recipient of the message.
 /// Dedicated lanes for recipient actors can be configured using `SerializationPoolSettings`.
-/// // TODO the scheme how we configure this may need some more re-thinking.
 ///
 /// Dispatching serialization to workers comes with a latency hit, as more async-processing has to happen to perform the
-/// same amount of work, however it allows avoiding head-of-line blocking in presence of large messages, e.g. when typically
-/// a given set of actors often sends large messages, which would have otherwise stalled the sending of other high-priority
+/// same amount of work, however it allows avoiding head-of-line blocking in presence of large messages, e.g. when
+/// typically
+/// a given set of actors often sends large messages, which would have otherwise stalled the sending of other
+/// high-priority
 /// (e.g. system) messages.
 ///
-// TODO: This should be internal, but is forced to be public by `_deserializeDeliver` on references.
-public final class _SerializationPool {
-    @usableFromInline
-    internal let serialization: Serialization
-    @usableFromInline
-    internal let workerMapping: [ActorPath: Int]
-    @usableFromInline
-    internal let serializationWorkerPool: AffinityThreadPool
-    @usableFromInline
-    internal let deserializationWorkerPool: AffinityThreadPool
+public final class SerializationPool {
+    @usableFromInline internal let serialization: Serialization
+    @usableFromInline internal let workerMapping: [ActorPath: Int]
+    @usableFromInline internal let serializationWorkerPool: AffinityThreadPool
+    @usableFromInline internal let deserializationWorkerPool: AffinityThreadPool
 
-    @usableFromInline
-    internal let instrumentation: _InternalActorTransportInstrumentation
+    @usableFromInline internal let instrumentation: InternalActorTransportInstrumentation
 
-    internal init(settings: SerializationPoolSettings, serialization: Serialization, instrumentation: _InternalActorTransportInstrumentation? = nil) throws {
+    internal init(
+        settings: SerializationPoolSettings,
+        serialization: Serialization,
+        instrumentation: InternalActorTransportInstrumentation? = nil
+    ) throws {
         self.serialization = serialization
-        self.instrumentation = instrumentation ?? Noop_InternalActorTransportInstrumentation()
-        var workerMapping: [ActorPath: Int] = [:]
+        self.instrumentation = instrumentation ?? NoopActorTransportInstrumentation()
+        var destinationLanes: [ActorPath: Int] = [:]
         for (index, group) in settings.serializationGroups.enumerated() {
             for path in group {
                 // mapping from each actor path to the corresponding group index,
                 // which maps 1:1 to the serialization worker number
-                workerMapping[path] = index
+                destinationLanes[path] = index
             }
         }
-        self.workerMapping = workerMapping
+        self.workerMapping = destinationLanes
         self.serializationWorkerPool = try AffinityThreadPool(workerCount: settings.serializationGroups.count)
         self.deserializationWorkerPool = try AffinityThreadPool(workerCount: settings.serializationGroups.count)
-    }
-
-    deinit {
-        self.shutdown()
     }
 
     internal func shutdown() {
@@ -70,18 +65,31 @@ public final class _SerializationPool {
         recipientPath: ActorPath,
         promise: EventLoopPromise<Serialization.Serialized>
     ) {
-        // TODO: also record thr delay between submitting and starting serialization work here?
         self.enqueue(recipientPath: recipientPath, promise: promise, workerPool: self.serializationWorkerPool) {
             do {
-                self.instrumentation.remoteActorMessageSerializeStart(id: promise.futureResult, recipient: recipientPath, message: message)
-                let serialized = try self.serialization.serialize(message)
+                self.instrumentation.remoteActorMessageSerializeStart(
+                    id: promise.futureResult,
+                    recipient: recipientPath,
+                    message: message
+                )
+                let serialized: Serialization.Serialized = try self.serialization.serialize(message)
 
-                traceLog_Serialization("serialize(\(message), to: \(recipientPath))")
+                traceLog_Serialization(
+                    "serialize(\(message), to: \(recipientPath))",
+                    file: #fileID,
+                    line: #line
+                )
 
-                // TODO: collapse those two and only use the instrumentation points, also for metrics
-                self.instrumentation.remoteActorMessageSerializeEnd(id: promise.futureResult, bytes: serialized.buffer.count)
+                self.instrumentation.remoteActorMessageSerializeEnd(
+                    id: promise.futureResult,
+                    bytes: serialized.buffer.count
+                )
                 self.serialization.metrics.recordSerializationMessageOutbound(recipientPath, serialized.buffer.count)
-                traceLog_Serialization("OK serialize(\(message), to: \(recipientPath))")
+                traceLog_Serialization(
+                    "OK serialize(\(message), to: \(recipientPath))",
+                    file: #fileID,
+                    line: #line
+                )
 
                 return serialized
             } catch {
@@ -91,7 +99,7 @@ public final class _SerializationPool {
         }
     }
 
-    /// Note: The `Message` type MAY be `Never` in which case it is assumed that the message was intended for an already dead actor and the deserialized message is returned as such.
+    /// `Never` denotes a dead recipient; the decoded value is then delivered as a dead letter.
     @inlinable
     internal func deserializeAny(
         from buffer: Serialization.Buffer,
@@ -101,21 +109,28 @@ public final class _SerializationPool {
         // and we use identity of the callback to interact with the instrumentation for start/stop correlation.
         callback: DeserializationCallback
     ) {
-        // swift-format-ignore: OnlyOneTrailingClosureArgument
-        self.enqueue(recipientPath: recipientPath, onComplete: { callback.call($0) }, workerPool: self.deserializationWorkerPool) {
-            do {
-                self.serialization.metrics.recordSerializationMessageInbound(recipientPath, buffer.count)
-                self.instrumentation.remoteActorMessageDeserializeStart(id: callback, recipient: recipientPath, bytes: buffer.count)
+        self.enqueue(
+            recipientPath: recipientPath,
+            onComplete: { result in callback.call(result) },
+            workerPool: self.deserializationWorkerPool,
+            task: {
+                do {
+                    self.serialization.metrics.recordSerializationMessageInbound(recipientPath, buffer.count)
+                    self.instrumentation.remoteActorMessageDeserializeStart(
+                        id: callback,
+                        recipient: recipientPath,
+                        bytes: buffer.count
+                    )
 
-                // do the work, this may be "heavy"
-                let deserialized = try self.serialization.deserializeAny(from: buffer, using: manifest)
-                self.instrumentation.remoteActorMessageDeserializeEnd(id: callback, message: deserialized)
-                return .message(deserialized)
-            } catch {
-                self.instrumentation.remoteActorMessageDeserializeEnd(id: callback, message: nil)
-                throw error
+                    let deserialized: Any = try self.serialization.deserializeAny(from: buffer, using: manifest)
+                    self.instrumentation.remoteActorMessageDeserializeEnd(id: callback, message: deserialized)
+                    return .message(deserialized)
+                } catch {
+                    self.instrumentation.remoteActorMessageDeserializeEnd(id: callback, message: nil)
+                    throw error
+                }
             }
-        }
+        )
     }
 
     @inline(__always)
@@ -126,18 +141,21 @@ public final class _SerializationPool {
         workerPool: AffinityThreadPool,
         task: @escaping () throws -> Message
     ) {
-        self.enqueue(recipientPath: recipientPath, onComplete: promise.completeWith, workerPool: workerPool, task: { try task() })
+        self.enqueue(
+            recipientPath: recipientPath,
+            onComplete: promise.completeWith,
+            workerPool: workerPool
+        ) { try task() }
     }
 
     @inline(__always)
     @usableFromInline
     internal func enqueue<Message>(
         recipientPath: ActorPath,
-        onComplete: @escaping (Result<Message, Error>) -> Void,
+        onComplete: @escaping (sending Result<Message, Error>) -> Void,
         workerPool: AffinityThreadPool,
         task: @escaping () throws -> Message
     ) {
-        // TODO: also record thr delay between submitting and starting serialization work here?
         do {
             // check if messages for this particular actor should be handled
             // on a separate thread and submit to the worker pool
@@ -156,40 +174,8 @@ public final class _SerializationPool {
             onComplete(.failure(error))
         }
     }
-}
 
-/// Allows to "box" another value.
-@usableFromInline
-final class DeserializationCallback {
-    /// A message deserialization may either be successful or fail due to attempting to deliver at an already dead actor,
-    /// if this happens, we do not *statically* have the right `Message`  to cast to and the only remaining thing for such
-    /// message is to be delivered as a dead letter thus we can avoid the cast entirely.
-    ///
-    /// Note: resolving a dead actor yields `_ActorRef<Never>` thus we would _never_ be able to deliver the message to it,
-    /// and have to special case the dead letter delivery.
-    @usableFromInline
-    enum DeserializedMessage {
-        case message(Any)
-        case deadLetter(Any)
-    }
-
-    @usableFromInline
-    let call: (Result<DeserializedMessage, Error>) -> Void
-
-    init(_ callback: @escaping (Result<DeserializedMessage, Error>) -> Void) {
-        self.call = callback
-    }
-}
-
-// ==== ----------------------------------------------------------------------------------------------------------------
-// MARK: Serialization.Settings
-
-/// Configure specific actor destinations to be serviced by dedicated threads in the serialization pool.
-struct SerializationPoolSettings {
-    // TODO: enable configuration again, but base it on tagging actor identities
-    let serializationGroups: [[ActorPath]]
-
-    static var `default`: SerializationPoolSettings {
-        SerializationPoolSettings(serializationGroups: [])
+    deinit {
+        self.shutdown()
     }
 }

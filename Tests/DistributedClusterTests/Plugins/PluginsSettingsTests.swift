@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,16 +10,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedCluster
 import XCTest
 
-final class PluginsSettingsTests: XCTestCase {
-    func test_pluginsSettings_isInstalled() {
-        var pluginsSettings = PluginsSettings()
+internal final class PluginsSettingsTests: XCTestCase {
+    internal func test_pluginsSettings_isInstalled() {
+        var pluginsSettings: PluginsSettings = PluginsSettings()
 
-        let clusterSingletonPlugin = ClusterSingletonPlugin()
+        let clusterSingletonPlugin: ClusterSingletonPlugin = ClusterSingletonPlugin()
         XCTAssertFalse(pluginsSettings.isInstalled(plugin: clusterSingletonPlugin))
 
         pluginsSettings.install(plugin: clusterSingletonPlugin)

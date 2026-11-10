@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,13 +10,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Distributed
 import DistributedCluster
 import Logging
 
-distributed actor Philosopher: CustomStringConvertible {
+internal distributed actor Philosopher: CustomStringConvertible {
+    private enum State: Equatable {
+        case thinking
+        case takingForks(leftTaken: Bool, rightTaken: Bool)
+        case eating
+    }
+
     private let name: String
     private lazy var log: Logger = .init(actor: self)
 
@@ -24,46 +30,48 @@ distributed actor Philosopher: CustomStringConvertible {
     private let rightFork: Fork
     private var state: State = .thinking
 
-    init(name: String, leftFork: Fork, rightFork: Fork, actorSystem: ActorSystem) {
+    internal init(name: String, leftFork: Fork, rightFork: Fork, actorSystem: ActorSystem) {
         self.actorSystem = actorSystem
         self.name = name
         self.leftFork = leftFork
         self.rightFork = rightFork
-        self.log.info("\(self.name) joined the table!")
 
         Task {
-            //            context.watch(self.leftFork)
-            //            context.watch(self.rightFork)
-            try await self.think()
+            await self.whenLocal { myself in
+                myself.log.info("\(myself.name) joined the table!")
+                myself.think()
+            }
         }
     }
 
-    distributed func think() {
-        if case .takingForks(let leftIsTaken, let rightIsTaken) = self.state {
+    internal distributed func think() {
+        if case let .takingForks(leftIsTaken, rightIsTaken) = self.state {
             if leftIsTaken {
                 Task {
-                    try await leftFork.putBack()
-                    self.log.info("\(self.name) put back their left fork!")
+                    await self.returnFork(leftFork)
                 }
             }
 
             if rightIsTaken {
                 Task {
-                    try await rightFork.putBack()
-                    self.log.info("\(self.name) put back their right fork!")
+                    await self.returnFork(rightFork)
                 }
             }
         }
 
         self.state = .thinking
         Task {
-            try await Task.sleep(until: .now + .seconds(1), clock: .continuous)
-            await self.attemptToTakeForks()
+            do {
+                try await Task.sleep(until: .now + .seconds(1), clock: .continuous)
+                await self.attemptToTakeForks()
+            } catch {
+                self.log.warning("Thinking interrupted: \(error)")
+            }
         }
         self.log.info("\(self.name) is thinking...")
     }
 
-    distributed func attemptToTakeForks() async {
+    internal distributed func attemptToTakeForks() async {
         guard self.state == .thinking else {
             self.log.error("\(self.name) tried to take a fork but was not in the thinking state!")
             return
@@ -72,21 +80,19 @@ distributed actor Philosopher: CustomStringConvertible {
         self.state = .takingForks(leftTaken: false, rightTaken: false)
 
         do {
-            // TODO(distributed): take the forks in parallel; rdar://83609197 blocked on async let + distributed interaction
-
-            let tookRight = try await self.rightFork.take()
+            let tookRight: Bool = try await self.rightFork.take()
             guard tookRight else {
                 self.think()
                 return
             }
-            self.forkTaken(self.leftFork)
+            self.forkTaken(self.rightFork)
 
-            let tookLeft = try await self.leftFork.take()
+            let tookLeft: Bool = try await self.leftFork.take()
             guard tookLeft else {
                 self.think()
                 return
             }
-            self.forkTaken(self.rightFork)
+            self.forkTaken(self.leftFork)
         } catch {
             self.log.info("\(self.name) wasn't able to take both forks!")
             self.think()
@@ -94,34 +100,28 @@ distributed actor Philosopher: CustomStringConvertible {
     }
 
     /// Message sent to oneself after a timer exceeds and we're done `eating` and can become `thinking` again.
-    distributed func stopEating() {
+    internal distributed func stopEating() {
         self.log.info("\(self.name) is done eating and replaced both forks!")
         Task {
-            do {
-                try await self.leftFork.putBack()
-            } catch {
-                self.log.warning("Failed putting back fork \(leftFork): \(error)")
-            }
+            await self.returnFork(self.leftFork)
         }
         Task {
-            do {
-                try await self.rightFork.putBack()
-            } catch {
-                self.log.warning("Failed putting back fork \(leftFork): \(error)")
-            }
+            await self.returnFork(self.rightFork)
         }
         self.think()
     }
 
     private func forkTaken(_ fork: Fork) {
         if self.state == .thinking {  // We couldn't get the first fork and have already gone back to thinking.
-            Task { try await fork.putBack() }
+            Task { await self.returnFork(fork) }
             return
         }
 
-        guard case .takingForks(let leftForkIsTaken, let rightForkIsTaken) = self.state else {
-            self.log.error("Received fork \(fork) but was not in .takingForks state. State was \(self.state)! Ignoring...")
-            Task { try await fork.putBack() }
+        guard case let .takingForks(leftForkIsTaken, rightForkIsTaken) = self.state else {
+            self.log.error(
+                "Received fork \(fork) but was not in .takingForks state. State was \(self.state)! Ignoring..."
+            )
+            Task { await self.returnFork(fork) }
             return
         }
 
@@ -129,9 +129,11 @@ distributed actor Philosopher: CustomStringConvertible {
         case self.leftFork:
             self.log.info("\(self.name) received their left fork!")
             self.state = .takingForks(leftTaken: true, rightTaken: rightForkIsTaken)
+
         case self.rightFork:
             self.log.info("\(self.name) received their right fork!")
             self.state = .takingForks(leftTaken: leftForkIsTaken, rightTaken: true)
+
         default:
             self.log.error("Received unknown fork! Got: \(fork). Known forks: \(self.leftFork), \(self.rightFork)")
         }
@@ -145,16 +147,21 @@ distributed actor Philosopher: CustomStringConvertible {
         self.state = .eating
         self.log.notice("\(self.name) began eating!")
         Task {
-            try await Task.sleep(until: .now + .seconds(3), clock: .continuous)
-            self.stopEating()
+            do {
+                try await Task.sleep(until: .now + .seconds(3), clock: .continuous)
+                self.stopEating()
+            } catch {
+                self.log.warning("Eating interrupted: \(error)")
+            }
         }
     }
-}
 
-extension Philosopher {
-    private enum State: Equatable {
-        case thinking
-        case takingForks(leftTaken: Bool, rightTaken: Bool)
-        case eating
+    private func returnFork(_ fork: Fork) async {
+        do {
+            try await fork.putBack()
+            self.log.info("\(self.name) put back fork \(fork)!")
+        } catch {
+            self.log.warning("Failed putting back fork \(fork): \(error)")
+        }
     }
 }

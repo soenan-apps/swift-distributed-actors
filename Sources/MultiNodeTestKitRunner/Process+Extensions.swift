@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import ArgumentParser
 import DistributedCluster
@@ -20,14 +20,14 @@ import NIOPosix
 import class Foundation.FileHandle
 import struct Foundation.URL
 
-#if canImport(Foundation.Process)
+#if canImport(Darwin) || canImport(Glibc)
 import class Foundation.Process
 #endif
 
-#if canImport(Foundation.Process)
+#if canImport(Darwin) || canImport(Glibc)
 // Compatible with Swift on all macOS versions as well as Linux
 extension Process {
-    var binaryPath: String? {
+    internal var binaryPath: String? {
         get {
             if #available(macOS 10.13, *) {  // '*' covers Linux
                 return self.executableURL?.path
@@ -44,7 +44,7 @@ extension Process {
         }
     }
 
-    func runProcess() throws {
+    internal func runProcess() throws {
         if #available(macOS 10.13, *) {
             try self.run()
         } else {

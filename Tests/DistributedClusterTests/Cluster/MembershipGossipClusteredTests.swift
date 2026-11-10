@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import Foundation
@@ -19,8 +19,8 @@ import XCTest
 
 @testable import DistributedCluster
 
-final class MembershipGossipClusteredTests: ClusteredActorSystemsXCTestCase {
-    override func configureLogCapture(settings: inout LogCapture.Settings) {
+internal final class MembershipGossipClusteredTests: ClusteredActorSystemsXCTestCase {
+    override internal func configureLogCapture(settings: inout LogCapture.Settings) {
         settings.filterActorPaths = [
             "/system/cluster"
         ]
@@ -29,7 +29,7 @@ final class MembershipGossipClusteredTests: ClusteredActorSystemsXCTestCase {
             "/system/receptionist",
         ]
         settings.excludeGrep = [
-            "_TimerKey",
+            "TimerKey",
             "schedule next gossip",
             "Gossip payload updated",
         ]
@@ -38,19 +38,22 @@ final class MembershipGossipClusteredTests: ClusteredActorSystemsXCTestCase {
     // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: Marking .down
 
-    func test_down_beGossipedToOtherNodes() async throws {
-        let strategy = ClusterSystemSettings.LeadershipSelectionSettings.lowestReachable(minNumberOfMembers: 3)
-        let first = await setUpNode("first") { settings in
+    internal func test_down_beGossipedToOtherNodes() async throws {
+        let strategy: ClusterSystemSettings.LeadershipSelectionSettings =
+            ClusterSystemSettings.LeadershipSelectionSettings.lowestReachable(minNumberOfMembers: 3)
+        let first: ClusterSystem = await setUpNode("first") { settings in
             settings.autoLeaderElection = strategy
-            settings.onDownAction = .none
+            settings.onDownAction = .disabled
         }
-        let second = await setUpNode("second") { settings in
+
+        let second: ClusterSystem = await setUpNode("second") { settings in
             settings.autoLeaderElection = strategy
-            settings.onDownAction = .none
+            settings.onDownAction = .disabled
         }
-        let third = await setUpNode("third") { settings in
+
+        let third: ClusterSystem = await setUpNode("third") { settings in
             settings.autoLeaderElection = strategy
-            settings.onDownAction = .none
+            settings.onDownAction = .disabled
         }
 
         first.cluster.join(endpoint: second.cluster.node.endpoint)
@@ -60,13 +63,13 @@ final class MembershipGossipClusteredTests: ClusteredActorSystemsXCTestCase {
         try assertAssociated(second, withAtLeast: third.cluster.node)
         try assertAssociated(first, withAtLeast: third.cluster.node)
 
-        try await self.assertMemberStatus(on: second, node: first.cluster.node, is: .up, within: .seconds(10))
-        try await self.assertMemberStatus(on: second, node: second.cluster.node, is: .up, within: .seconds(10))
-        try await self.assertMemberStatus(on: second, node: third.cluster.node, is: .up, within: .seconds(10))
+        try await self.assertMemberStatus(on: second, node: first.cluster.node, is: .operational, within: .seconds(10))
+        try await self.assertMemberStatus(on: second, node: second.cluster.node, is: .operational, within: .seconds(10))
+        try await self.assertMemberStatus(on: second, node: third.cluster.node, is: .operational, within: .seconds(10))
 
-        let firstEvents = await testKit(first).spawnClusterEventStreamTestProbe()
-        let secondEvents = await testKit(second).spawnClusterEventStreamTestProbe()
-        let thirdEvents = await testKit(third).spawnClusterEventStreamTestProbe()
+        let firstEvents: ActorTestProbe<Cluster.Event> = await testKit(first).spawnClusterEventStreamTestProbe()
+        let secondEvents: ActorTestProbe<Cluster.Event> = await testKit(second).spawnClusterEventStreamTestProbe()
+        let thirdEvents: ActorTestProbe<Cluster.Event> = await testKit(third).spawnClusterEventStreamTestProbe()
 
         second.cluster.down(endpoint: third.cluster.node.endpoint)
 
@@ -78,15 +81,17 @@ final class MembershipGossipClusteredTests: ClusteredActorSystemsXCTestCase {
     // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: SWIM + joining
 
-    func test_join_swimDiscovered_thirdNode() async throws {
-        let first = await setUpNode("first") { settings in
-            settings.endpoint.port = 7111
+    internal func test_join_swimDiscovered_thirdNode() async throws {
+        let first: ClusterSystem = await setUpNode("first") { settings in
+            settings.endpoint.port = 7_111
         }
-        let second = await setUpNode("second") { settings in
-            settings.endpoint.port = 8222
+
+        let second: ClusterSystem = await setUpNode("second") { settings in
+            settings.endpoint.port = 8_222
         }
-        let third = await setUpNode("third") { settings in
-            settings.endpoint.port = 9333
+
+        let third: ClusterSystem = await setUpNode("third") { settings in
+            settings.endpoint.port = 9_333
         }
 
         // 1. first join second
@@ -98,23 +103,23 @@ final class MembershipGossipClusteredTests: ClusteredActorSystemsXCTestCase {
         // confirm 1
         try assertAssociated(first, withAtLeast: second.cluster.node)
         try assertAssociated(second, withAtLeast: first.cluster.node)
-        pinfo("Associated: first <~> second")
+        pinfo("Associated: first <~> second", file: #fileID, line: #line)
         // confirm 2
         try assertAssociated(third, withAtLeast: second.cluster.node)
         try assertAssociated(second, withAtLeast: third.cluster.node)
-        pinfo("Associated: second <~> third")
+        pinfo("Associated: second <~> third", file: #fileID, line: #line)
 
         // 3.1. first should discover third
         // confirm 3.1
         try assertAssociated(first, withAtLeast: third.cluster.node)
-        pinfo("Associated: first ~> third")
+        pinfo("Associated: first ~> third", file: #fileID, line: #line)
 
         // 3.2. third should discover first
         // confirm 3.2
         try assertAssociated(third, withAtLeast: first.cluster.node)
-        pinfo("Associated: third ~> first")
+        pinfo("Associated: third ~> first", file: #fileID, line: #line)
 
         // excellent, all nodes know each other
-        pinfo("Associated: third <~> first")
+        pinfo("Associated: third <~> first", file: #fileID, line: #line)
     }
 }

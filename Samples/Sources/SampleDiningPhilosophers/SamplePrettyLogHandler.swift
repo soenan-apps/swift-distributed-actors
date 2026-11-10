@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Distributed
 import Logging
@@ -32,74 +32,50 @@ import WASILibc
 #endif
 
 /// Logger that prints "pretty" for showcasing the cluster nicely in sample applications.
-struct SamplePrettyLogHandler: LogHandler {
-    static let CONSOLE_RESET = "\u{001B}[0;0m"
-    static let CONSOLE_BOLD = "\u{001B}[1m"
-
-    public static func make(label: String) -> SamplePrettyLogHandler {
-        SamplePrettyLogHandler(label: label)
-    }
+internal struct SamplePrettyLogHandler: LogHandler {
+    internal static let consoleReset: String = "\u{001B}[0;0m"
+    internal static let consoleBold: String = "\u{001B}[1m"
 
     private let label: String
 
-    public var logLevel: Logger.Level = .info
+    internal var logLevel: Logger.Level = .info
 
-    public var metadata = Logger.Metadata()
-
-    public subscript(metadataKey metadataKey: String) -> Logger.Metadata.Value? {
-        get {
-            self.metadata[metadataKey]
-        }
-        set {
-            self.metadata[metadataKey] = newValue
-        }
-    }
+    internal var metadata: Logger.Metadata = Logger.Metadata()
 
     // internal for testing only
     internal init(label: String) {
         self.label = label
     }
 
-    // TODO: this implementation of getting a nice printout is a bit messy, but good enough for our sample apps
-    public func log(
-        level: Logger.Level,
-        message: Logger.Message,
-        metadata: Logger.Metadata?,
-        source: String,
-        file: String,
-        function: String,
-        line: UInt
-    ) {
-        var metadataString = ""
-        var nodeInfo = ""
+    internal static func make(label: String) -> Self {
+        Self(label: label)
+    }
 
-        var effectiveMetadata = (metadata ?? [:]).merging(self.metadata, uniquingKeysWith: { _, new in new })
+    internal func log(event: LogEvent) {
+        var metadataString: String = ""
+        var nodeInfo: String = ""
+
+        var effectiveMetadata: Logger.Metadata = (event.metadata ?? [:]).merging(self.metadata) { _, new in new }
         if let node = effectiveMetadata.removeValue(forKey: "cluster/node") {
             nodeInfo += "\(node)"
         }
-        let label: String
-        if let path = effectiveMetadata.removeValue(forKey: "actor/path")?.description {
-            label = path
-        } else {
-            label = ""
-        }
+
+        let actorLabel: String = effectiveMetadata.removeValue(forKey: "actor/path")?.description ?? ""
 
         if !effectiveMetadata.isEmpty {
             metadataString = "\n// metadata:\n"
-            for key in effectiveMetadata.keys.sorted() {
-                let value: Logger.MetadataValue = effectiveMetadata[key]!
-                let valueDescription = self.prettyPrint(metadata: value)
+            for (key, value) in effectiveMetadata.sorted(by: { $0.key < $1.key }) {
+                let valueDescription: String = self.prettyPrint(metadata: value)
 
-                var allString = "\n// \"\(key)\": \(valueDescription)"
+                var allString: String = "\n// \"\(key)\": \(valueDescription)"
                 if allString.contains("\n") {
                     allString = String(
                         allString.split(separator: "\n").map { valueLine in
                             if valueLine.starts(with: "// ") {
                                 return "\(valueLine)\n"
-                            } else {
-                                return "// \(valueLine)\n"
                             }
-                        }.joined(separator: "")
+                            return "// \(valueLine)\n"
+                        }.joined()
                     )
                 }
                 metadataString.append(allString)
@@ -107,23 +83,33 @@ struct SamplePrettyLogHandler: LogHandler {
             metadataString = String(metadataString.dropLast(1))
         }
 
-        let file = file.split(separator: "/").last ?? ""
-        let line = line
-        print("\(self.timestamp()) \(level) [\(nodeInfo)\(Self.CONSOLE_BOLD)\(label)\(Self.CONSOLE_RESET)][\(file):\(line)] \(message)\(metadataString)")
+        let fileName: Substring = event.file.split(separator: "/").last ?? ""
+        let actorInfo: String = "[\(nodeInfo)\(Self.consoleBold)\(actorLabel)\(Self.consoleReset)]"
+        print(
+            """
+            \(self.timestamp()) \(event.level) \(actorInfo)[\(fileName):\(event.line)] \
+            \(event.message)\(metadataString)
+            """
+        )
     }
 
     internal func prettyPrint(metadata: Logger.MetadataValue) -> String {
-        var valueDescription = ""
+        var valueDescription: String = ""
         switch metadata {
         case .string(let string):
             valueDescription = string
+
         case .stringConvertible(let convertible):
             valueDescription = convertible.description
+
         case .array(let array):
             valueDescription = "\n  \(array.map { "\($0)" }.joined(separator: "\n  "))"
+
         case .dictionary(let metadata):
-            for k in metadata.keys {
-                valueDescription += "\(Self.CONSOLE_BOLD)\(k)\(Self.CONSOLE_RESET): \(self.prettyPrint(metadata: metadata[k]!))"
+            for (key, value) in metadata {
+                valueDescription += """
+                    \(Self.consoleBold)\(key)\(Self.consoleReset): \(self.prettyPrint(metadata: value))
+                    """
             }
         }
 
@@ -133,10 +119,20 @@ struct SamplePrettyLogHandler: LogHandler {
     private func timestamp() -> String {
         Date.now.formatted(date: .omitted, time: .standard)
     }
+
+    internal subscript(metadataKey metadataKey: String) -> Logger.Metadata.Value? {
+        get {
+            self.metadata[metadataKey]
+        }
+        set {
+            self.metadata[metadataKey] = newValue
+        }
+    }
 }
 
 extension DistributedActor where Self: CustomStringConvertible {
-    public nonisolated var description: String {
+    /// Returns the actor type and its cluster identity.
+    nonisolated public var description: String {
         "\(Self.self)(\(self.id))"
     }
 }

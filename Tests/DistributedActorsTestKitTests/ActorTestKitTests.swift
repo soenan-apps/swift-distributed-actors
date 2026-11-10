@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,79 +10,85 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import XCTest
 
 @testable import DistributedActorsTestKit
 @testable import DistributedCluster
 
-final class ActorTestKitTests: XCTestCase {
-    var system: ClusterSystem!
-    var testKit: ActorTestKit!
+internal final class ActorTestKitTests: XCTestCase {
+    private var system: ClusterSystem?
+    private var testKit: ActorTestKit?
 
-    override func setUp() async throws {
-        self.system = await ClusterSystem(String(describing: type(of: self)))
-        self.testKit = ActorTestKit(self.system)
+    override internal func setUp() async {
+        let actorSystem: ClusterSystem = await ClusterSystem(String(describing: type(of: self)))
+        self.system = actorSystem
+        self.testKit = ActorTestKit(actorSystem)
     }
 
-    override func tearDown() async throws {
-        try await self.system.shutdown().wait()
+    override internal func tearDown() async throws {
+        let actorSystem: ClusterSystem = try XCTUnwrap(self.system)
+        try await actorSystem.shutdown().wait()
     }
 
-    func test_error_withMessage() throws {
-        let error = self.testKit.error("test")
+    internal func test_error_withMessage() throws {
+        let kit: ActorTestKit = try XCTUnwrap(self.testKit)
+        let error: Error = kit.error("test")
         "\(error)".contains("test").shouldBeTrue()
     }
 
-    func test_fail_shouldNotImmediatelyFailWithinEventuallyBlock() throws {
-        var counter = 0
+    internal func test_fail_shouldNotImmediatelyFailWithinEventuallyBlock() throws {
+        let kit: ActorTestKit = try XCTUnwrap(self.testKit)
+        var counter: Int = 0
 
-        try testKit.eventually(within: .seconds(1), interval: .milliseconds(10)) {
+        try kit.eventually(within: .seconds(1), interval: .milliseconds(10)) {
             if counter < 5 {
                 counter += 1
-                throw testKit.fail("This should not fail the test")
+                throw kit.fail("This should not fail the test")
             }
         }
     }
 
-    func test_nestedEventually_shouldProperlyHandleFailures() throws {
-        var outerCounter = 0
-        var innerCounter = 0
+    internal func test_nestedEventually_shouldProperlyHandleFailures() throws {
+        let kit: ActorTestKit = try XCTUnwrap(self.testKit)
+        var outerCounter: Int = 0
+        var innerCounter: Int = 0
 
-        try testKit.eventually(within: .seconds(1), interval: .milliseconds(11)) {
-            try testKit.eventually(within: .milliseconds(100)) {
+        try kit.eventually(within: .seconds(1), interval: .milliseconds(11)) {
+            try kit.eventually(within: .milliseconds(100)) {
                 if innerCounter < 5 {
                     innerCounter += 1
-                    throw testKit.error("This should not fail the test")
+                    throw kit.error("This should not fail the test")
                 }
             }
 
             if outerCounter < 5 {
                 outerCounter += 1
-                throw testKit.fail("This should not fail the test")
+                throw kit.fail("This should not fail the test")
             }
         }
     }
 
-    func test_fishForMessages() throws {
-        let p = self.testKit.makeTestProbe(expecting: String.self)
+    internal func test_fishForMessages() throws {
+        let kit: ActorTestKit = try XCTUnwrap(self.testKit)
+        let probe: ActorTestProbe<String> = kit.makeTestProbe(expecting: String.self)
 
-        p.tell("yes-1")
-        p.tell("yes-2")
-        p.tell("no-1")
-        p.tell("no-2")
-        p.tell("yes-3")
-        p.tell("yes-end")
+        probe.tell("yes-1")
+        probe.tell("yes-2")
+        probe.tell("no-1")
+        probe.tell("no-2")
+        probe.tell("yes-3")
+        probe.tell("yes-end")
 
-        let messages = try p.fishForMessages(within: .seconds(30)) { message in
+        let messages: [String] = try probe.fishForMessages(within: .seconds(30)) { message in
             if message.contains("yes-end") {
                 return .catchComplete
-            } else if message.contains("yes") {
-                return .catchContinue
-            } else {
-                return .ignore
             }
+            if message.contains("yes") {
+                return .catchContinue
+            }
+            return .ignore
         }
 
         messages.shouldEqual(
@@ -95,24 +101,25 @@ final class ActorTestKitTests: XCTestCase {
         )
     }
 
-    func test_fishForTransformed() throws {
-        let p = self.testKit.makeTestProbe(expecting: String.self)
+    internal func test_fishForTransformed() throws {
+        let kit: ActorTestKit = try XCTUnwrap(self.testKit)
+        let probe: ActorTestProbe<String> = kit.makeTestProbe(expecting: String.self)
 
-        p.tell("yes-1")
-        p.tell("yes-2")
-        p.tell("no-1")
-        p.tell("no-2")
-        p.tell("yes-3")
-        p.tell("yes-end")
+        probe.tell("yes-1")
+        probe.tell("yes-2")
+        probe.tell("no-1")
+        probe.tell("no-2")
+        probe.tell("yes-3")
+        probe.tell("yes-end")
 
-        let messages = try p.fishFor(String.self, within: .seconds(30)) { message in
+        let messages: [String] = try probe.fishFor(String.self, within: .seconds(30)) { message in
             if message.contains("yes-end") {
                 return .catchComplete("\(message)!!!")
-            } else if message.contains("yes") {
-                return .catchContinue("\(message)!!!")
-            } else {
-                return .ignore
             }
+            if message.contains("yes") {
+                return .catchContinue("\(message)!!!")
+            }
+            return .ignore
         }
 
         messages.shouldEqual(
@@ -125,16 +132,17 @@ final class ActorTestKitTests: XCTestCase {
         )
     }
 
-    func test_fishFor_canThrow() throws {
-        let p = self.testKit.makeTestProbe(expecting: String.self)
+    internal func test_fishFor_canThrow() throws {
+        let kit: ActorTestKit = try XCTUnwrap(self.testKit)
+        let probe: ActorTestProbe<String> = kit.makeTestProbe(expecting: String.self)
 
-        p.tell("yes-1")
+        probe.tell("yes-1")
 
         do {
-            _ = try p.fishForMessages(within: .seconds(30)) { message in
+            _ = try probe.fishForMessages(within: .seconds(30)) { message in
                 throw TestError("Boom: \(message)")
             }
-            throw self.testKit.fail("Should have thrown")
+            throw kit.fail("Should have thrown")
         } catch {
             "\(error)".shouldContain("Boom: yes-1")
         }

@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,60 +10,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
-// FIXME(nio): remove and use NIO's CircularBuffer
 @usableFromInline
-final class RingBuffer<A> {
-    @usableFromInline
-    var elements: [A?]
-    @usableFromInline
-    var readCounter: Int
-    @usableFromInline
-    var writeCounter: Int
-    @usableFromInline
-    let capacity: Int
+internal final class RingBuffer<Element> {
+    @usableFromInline internal var elements: [Element?]
+    @usableFromInline internal var readCounter: Int
+    @usableFromInline internal var writeCounter: Int
+    @usableFromInline internal let capacity: Int
 
-    init(capacity: Int) {
-        self.elements = [A?](repeating: nil, count: capacity)
-        self.readCounter = 0
-        self.writeCounter = 0
-        self.capacity = capacity
-    }
-
-    @inlinable
-    func offer(element: A) -> Bool {
-        if let index = writeIndex {
-            self.writeCounter += 1
-            self.elements[index] = element
-            return true
-        }
-
-        return false
-    }
-
-    @inlinable
-    func take() -> A? {
-        if let index = readIndex {
-            defer { elements[index] = nil }
-            self.readCounter += 1
-            return self.elements[index]
-        }
-
-        return nil
-    }
-
-    @inlinable
-    func peek() -> A? {
-        if let index = readIndex {
-            return self.elements[index]
-        }
-
-        return nil
-    }
-
-    @inlinable
-    var writeIndex: Int? {
+    @inlinable internal var writeIndex: Int? {
         if self.isFull {
             return nil
         }
@@ -71,8 +27,7 @@ final class RingBuffer<A> {
         return self.writeCounter % self.capacity
     }
 
-    @inlinable
-    var readIndex: Int? {
+    @inlinable internal var readIndex: Int? {
         if self.isEmpty {
             return nil
         }
@@ -80,54 +35,54 @@ final class RingBuffer<A> {
         return self.readCounter % self.capacity
     }
 
-    @inlinable
-    public var count: Int {
+    @inlinable internal var count: Int {
         self.writeCounter - self.readCounter
     }
 
-    @inlinable
-    public var isEmpty: Bool {
+    @inlinable internal var isEmpty: Bool {
         self.readCounter == self.writeCounter
     }
 
-    @inlinable
-    public var isFull: Bool {
+    @inlinable internal var isFull: Bool {
         (self.writeCounter - self.readCounter) == self.capacity
     }
 
-    @inlinable
-    public var iterator: RingBufferIterator<A> {
+    @inlinable internal var iterator: RingBufferIterator<Element> {
         RingBufferIterator(buffer: self, count: self.count)
     }
-}
 
-@usableFromInline
-class RingBufferIterator<Element>: IteratorProtocol {
-    @usableFromInline
-    let buffer: RingBuffer<Element>
-    @usableFromInline
-    var count: Int
-
-    @usableFromInline
-    init(buffer: RingBuffer<Element>, count: Int) {
-        assert(count >= 0, "count can't be less than 0")
-        self.buffer = buffer
-        self.count = count
+    internal init(capacity: Int) {
+        self.elements = [Element?](repeating: nil, count: capacity)
+        self.readCounter = 0
+        self.writeCounter = 0
+        self.capacity = capacity
     }
 
     @inlinable
-    func next() -> Element? {
-        if self.count == 0 {
-            return nil
+    internal func offer(element: Element) -> Bool {
+        if let index = writeIndex {
+            self.writeCounter += 1
+            self.elements[index] = element
+            return true
         }
-
-        self.count -= 1
-
-        return self.buffer.take()
+        return false
     }
 
     @inlinable
-    func take(_ count: Int) -> RingBufferIterator {
-        RingBufferIterator(buffer: self.buffer, count: min(self.count, count))
+    internal func take() -> Element? {
+        if let index = readIndex {
+            defer { elements[index] = nil }
+            self.readCounter += 1
+            return self.elements[index]
+        }
+        return nil
+    }
+
+    @inlinable
+    internal func peek() -> Element? {
+        if let index = readIndex {
+            return self.elements[index]
+        }
+        return nil
     }
 }

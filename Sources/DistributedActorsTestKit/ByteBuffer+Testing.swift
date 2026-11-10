@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsConcurrencyHelpers
 import Foundation
@@ -20,36 +20,38 @@ import XCTest
 
 @testable import DistributedCluster
 
-// TODO: probably remove those?
-
 extension Serialization.Buffer {
-    // For easier visual inspection of known utf8 data within a Buffer, use with care (!)
+    /// Decodes UTF-8 for visual inspection, describing undecodable data instead.
     public func stringDebugDescription() -> String {
         switch self {
         case .data(let data):
             return data.stringDebugDescription()
+
         case .nioByteBuffer(let buffer):
             return buffer.stringDebugDescription()
-        case ._PLEASE_DO_NOT_EXHAUSTIVELY_MATCH_THIS_ENUM_NEW_CASES_MIGHT_BE_ADDED_IN_THE_FUTURE:
+
+        case .nonExhaustive:
             return "\(self)"
         }
     }
 }
 
 extension Data {
-    // For easier visual inspection of known utf8 data within a Data, use with care (!)
+    /// Decodes UTF-8 for visual inspection, describing undecodable data instead.
     public func stringDebugDescription() -> String {
         if let string = String(data: self, encoding: .utf8) {
             return string
-        } else {
-            return "<<NOT UTF8 ENCODED: \(self)>>"
         }
+        return "<<NOT UTF8 ENCODED: \(self)>>"
     }
 }
 
 extension ByteBuffer {
-    // For easier visual inspection of known utf8 data within a ByteBuffer, use with care (!)
+    /// Reads UTF-8 from offset zero, trapping when those bytes are not readable UTF-8.
     public func stringDebugDescription() -> String {
-        self.getString(at: 0, length: self.readableBytes)!
+        guard let string = self.getString(at: 0, length: self.readableBytes) else {
+            preconditionFailure("Buffer does not contain readable UTF-8 at offset zero")
+        }
+        return string
     }
 }

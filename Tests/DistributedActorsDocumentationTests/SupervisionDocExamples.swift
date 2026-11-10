@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 // tag::imports[]
 
@@ -18,48 +18,48 @@ import DistributedCluster
 
 // end::imports[]
 
-class SupervisionDocExamples {
-    lazy var system: ClusterSystem = _undefined(hint: "Examples, not intended to be run")
+internal class SupervisionDocExamples {
+    internal lazy var system: ClusterSystem = undefined(hint: "Examples, not intended to be run")
 
-    func supervise_props() throws {
-        let greeterBehavior: _Behavior<String> = _undefined()
-        let context: _ActorContext<String> = _undefined()
+    internal func supervise_props() throws {
+        let greeterBehavior: Behavior<String> = undefined()
+        let context: ActorContext<String> = undefined()
 
         // tag::supervise_props[]
-        let props = _Props()  // <1>
+        let props: Props = Props()  // <1>
             .supervision(strategy: .restart(atMost: 2, within: .seconds(1)))  // <2>
         // potentially more props configuration here ...
 
-        let greeterRef = try context._spawn(
+        let greeterRef: ActorRef<String> = try context.spawn(
             "greeter",
-            props: props,  // <3>
-            greeterBehavior
+            greeterBehavior,
+            props: props  // <3>
         )
         // end::supervise_props[]
         _ = greeterRef
     }
 
-    func supervise_inline() throws {
-        let greeterBehavior: _Behavior<String> = _undefined()
-        let context: _ActorContext<String> = _undefined()
+    internal func supervise_inline() throws {
+        let greeterBehavior: Behavior<String> = undefined()
+        let context: ActorContext<String> = undefined()
 
         // tag::supervise_inline[]
-        let greeterRef = try context._spawn(
+        let greeterRef: ActorRef<String> = try context.spawn(
             "greeter",
-            props: .supervision(strategy: .restart(atMost: 2, within: .seconds(1))),  // <1>
-            greeterBehavior
+            greeterBehavior,
+            props: .supervision(strategy: .restart(atMost: 2, within: .seconds(1)))  // <1>
         )
         // end::supervise_inline[]
         _ = greeterRef
     }
 
-    func supervise_full_example() throws {
+    internal func supervise_full_example() throws {
         // tag::supervise_full_example[]
         enum GreeterError: Error {
             case doesNotLike(name: String)
         }
 
-        func greeterBehavior(friends: [String]) -> _Behavior<String> {
+        func greeterBehavior(friends: [String]) -> Behavior<String> {
             .receive { context, name in
                 guard friends.contains(name) else {
                     context.log.warning("Overreacting to \(name)... Letting it crash!")
@@ -73,12 +73,12 @@ class SupervisionDocExamples {
         // end::supervise_full_example[]
 
         // tag::supervise_full_usage[]
-        let friends = ["Alice", "Bob", "Caplin"]
+        let friends: [String] = ["Alice", "Bob", "Caplin"]
 
-        let greeterRef: _ActorRef<String> = try system._spawn(
+        let greeterRef: ActorRef<String> = try system.spawn(
             "greeter",
-            props: .supervision(strategy: .restart(atMost: 5, within: .seconds(1))),
-            greeterBehavior(friends: friends)
+            greeterBehavior(friends: friends),
+            props: .supervision(strategy: .restart(atMost: 5, within: .seconds(1)))
         )
 
         greeterRef.tell("Alice")  // ok!
@@ -91,14 +91,16 @@ class SupervisionDocExamples {
         // end::supervise_full_usage[]
     }
 
-    func supervise_fault_example() throws {
+    internal func supervise_fault_example() throws {
         // tag::supervise_fault_example[]
         typealias Name = String
         typealias LikedFruit = String
 
-        func favouriteFruitBehavior(_ whoLikesWhat: [Name: LikedFruit]) -> _Behavior<String> {
+        func favouriteFruitBehavior(_ whoLikesWhat: [Name: LikedFruit]) -> Behavior<String> {
             .receive { context, name in
-                let likedFruit = whoLikesWhat[name]!  // 😱 Oh, no! This force unwrap is a terrible idea!
+                guard let likedFruit: LikedFruit = whoLikesWhat[name] else {
+                    preconditionFailure("No favorite fruit registered for \(name)")
+                }
 
                 context.log.info("\(name) likes [\(likedFruit)]!")
                 return .same
@@ -113,10 +115,10 @@ class SupervisionDocExamples {
             "Caplin": "Cucumbers",
         ]
 
-        let greeterRef = try system._spawn(
+        let greeterRef: ActorRef<String> = try system.spawn(
             "favFruit",
-            props: .supervision(strategy: .restart(atMost: 5, within: .seconds(1))),
-            favouriteFruitBehavior(whoLikesWhat)
+            favouriteFruitBehavior(whoLikesWhat),
+            props: .supervision(strategy: .restart(atMost: 5, within: .seconds(1)))
         )
 
         greeterRef.tell("Alice")  // ok!
@@ -126,41 +128,5 @@ class SupervisionDocExamples {
         greeterRef.tell("Boom Boom!")  // crash!
         greeterRef.tell("Caplin")  // ok!
         // end::supervise_fault_usage[]
-    }
-
-    func supervise_specific_error_else_stop() throws {
-        // tag::supervise_specific_error_else_stop[]
-
-        //        // FIXME: can't easily express this now with codable
-        //        struct CatchThisError: Error {}
-        //        struct NotIntendedToBeCaught: Error {}
-        //
-        //        /// "Re-throws" whichever error was sent to it.
-        //        let throwerBehavior: _Behavior<Error> = .setup { context in
-        //            context.log.info("Starting...")
-        //
-        //            return .receiveMessage { error in
-        //                context.log.info("Throwing: \(error)")
-        //                throw error // "re-throw", yet inside the actor // <1>
-        //            }
-        //        }
-        //
-        //        let thrower = try system._spawn(
-        //            "thrower",
-        //            props: _Props()
-        //                .supervision(strategy: .restart(atMost: 10, within: nil), forErrorType: CatchThisError.self), // <2>
-        //            // .supervision(strategy: .stop, forAll: .failures) // (implicitly appended always) // <3>
-        //            throwerBehavior
-        //        )
-        //        // Logs: [info] Starting...
-        //
-        //        thrower.tell(CatchThisError()) // will crash and restart
-        //        // Logs: [info] Starting...
-        //        thrower.tell(CatchThisError()) // again
-        //        // Logs: [info] Starting...
-        //        thrower.tell(NotIntendedToBeCaught()) // crashes the actor for good
-        //        // further messages sent to it will end up in `system.deadLetters`
-
-        // end::supervise_specific_error_else_stop[]
     }
 }

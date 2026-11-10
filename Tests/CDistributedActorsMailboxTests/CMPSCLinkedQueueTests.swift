@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,39 +10,39 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import CDistributedActorsMailbox
 import Foundation
 import XCTest
 
-class CMPSCLinkedQueueTests: XCTestCase {
-    func testDequeueWhenEmpty() {
-        let q = c_sact_mpsc_linked_queue_create()
-        let res = c_sact_mpsc_linked_queue_dequeue(q)
+internal final class CMPSCLinkedQueueTests: XCTestCase {
+    internal func testDequeueWhenEmpty() {
+        let queue: UnsafeMutablePointer<CSActMPSCLinkedQueue>? = c_sact_mpsc_linked_queue_create()
+        let res: UnsafeMutableRawPointer? = c_sact_mpsc_linked_queue_dequeue(queue)
 
         XCTAssertNil(res)
     }
 
-    func testEnqueueDequeue() {
-        let q = c_sact_mpsc_linked_queue_create()
-        let p = UnsafeMutableRawPointer.allocate(byteCount: 0, alignment: 0)
+    internal func testEnqueueDequeue() {
+        let queue: UnsafeMutablePointer<CSActMPSCLinkedQueue>? = c_sact_mpsc_linked_queue_create()
+        let pointer: UnsafeMutableRawPointer = UnsafeMutableRawPointer.allocate(byteCount: 0, alignment: 0)
         defer {
-            p.deallocate()
+            pointer.deallocate()
         }
 
-        c_sact_mpsc_linked_queue_enqueue(q, p)
-        let res = c_sact_mpsc_linked_queue_dequeue(q)
+        c_sact_mpsc_linked_queue_enqueue(queue, pointer)
+        let res: UnsafeMutableRawPointer? = c_sact_mpsc_linked_queue_dequeue(queue)
 
-        XCTAssertEqual(p, res)
+        XCTAssertEqual(pointer, res)
     }
 
-    func testDestroy() {
+    internal func testDestroy() {
         // jsut checking that it doesn't segfault here
-        let q = c_sact_mpsc_linked_queue_create()
-        let p = UnsafeMutableRawPointer.allocate(byteCount: 0, alignment: 0)
+        let queue: UnsafeMutablePointer<CSActMPSCLinkedQueue>? = c_sact_mpsc_linked_queue_create()
+        let pointer: UnsafeMutableRawPointer = UnsafeMutableRawPointer.allocate(byteCount: 0, alignment: 0)
 
-        c_sact_mpsc_linked_queue_enqueue(q, p)
-        c_sact_mpsc_linked_queue_destroy(q)
+        c_sact_mpsc_linked_queue_enqueue(queue, pointer)
+        c_sact_mpsc_linked_queue_destroy(queue)
     }
 }

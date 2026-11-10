@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,23 +10,33 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsConcurrencyHelpers
 
-internal class CountDownLatch {
+internal class CountDownLatch: CustomStringConvertible {
     private var counter: Int
-    private let condition: _Condition
-    private let lock: _Mutex
+    private let condition: ClusterCondition
+    private let lock: ClusterMutex
 
-    init(from: Int) {
+    internal var count: Int {
+        self.lock.synchronized {
+            self.counter
+        }
+    }
+
+    internal var description: String {
+        "CountDownLatch(remaining:\(self.count)"
+    }
+
+    internal init(from: Int) {
         self.counter = from
-        self.condition = _Condition()
-        self.lock = _Mutex()
+        self.condition = ClusterCondition()
+        self.lock = ClusterMutex()
     }
 
     /// Returns previous value before the decrement was issued.
-    func countDown() {
+    internal func countDown() {
         self.lock.synchronized {
             self.counter -= 1
 
@@ -36,13 +46,7 @@ internal class CountDownLatch {
         }
     }
 
-    var count: Int {
-        self.lock.synchronized {
-            self.counter
-        }
-    }
-
-    func wait(atMost duration: Duration? = nil) {
+    internal func wait(atMost duration: Duration? = nil) {
         self.lock.synchronized {
             while true {
                 if self.counter == 0 {
@@ -56,11 +60,5 @@ internal class CountDownLatch {
                 }
             }
         }
-    }
-}
-
-extension CountDownLatch: CustomStringConvertible {
-    public var description: String {
-        "CountDownLatch(remaining:\(self.count)"
     }
 }

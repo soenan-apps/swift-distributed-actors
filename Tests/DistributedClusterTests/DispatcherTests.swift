@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Dispatch
 import DistributedActorsTestKit
@@ -21,85 +21,110 @@ import XCTest
 
 @testable import DistributedCluster
 
-final class DispatcherTests: SingleClusterSystemXCTestCase {
+internal final class DispatcherTests: SingleClusterSystemXCTestCase {
     // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: Running "on NIO" for fun and profit
 
-    func test_runOn_nioEventLoop() throws {
-        let p = self.testKit.makeTestProbe(expecting: String.self)
-        let behavior: _Behavior<String> = .receive { context, message in
+    internal func test_runOn_nioEventLoop() throws {
+        let probe: ActorTestProbe<String> = self.testKit.makeTestProbe(expecting: String.self)
+        let behavior: Behavior<String> = .receive { context, message in
             context.log.info("HELLO")
-            p.tell("Received: \(message)")
-            p.tell("Dispatcher: \((context as! _ActorShell<String>)._dispatcher.name)")
+            probe.tell("Received: \(message)")
+            probe.tell("Dispatcher: \((try XCTUnwrap(context as? ActorShell<String>)).messageDispatcher.name)")
             return .same
         }
 
-        let w = try system._spawn(.anonymous, props: .dispatcher(.nio(self.eventLoopGroup.next())), behavior)
-        w.tell("Hello")
+        let worker: ActorRef<String> = try system.spawn(
+            .anonymous,
+            behavior,
+            props: .dispatcher(
+                .nio(
+                    self.eventLoopGroup.next()
+                )
+            )
+        )
+        worker.tell("Hello")
 
-        let received: String = try p.expectMessage()
+        let received: String = try probe.expectMessage()
         received.dropFirst("Received: ".count).shouldEqual("Hello")
 
-        let dispatcher: String = try p.expectMessage()
+        let dispatcher: String = try probe.expectMessage()
         dispatcher.dropFirst("Dispatcher: ".count).shouldStartWith(prefix: "nio:")
     }
 
-    func test_runOn_nioEventLoopGroup() throws {
-        let p = self.testKit.makeTestProbe(expecting: String.self)
-        let behavior: _Behavior<String> = .receive { context, message in
+    internal func test_runOn_nioEventLoopGroup() throws {
+        let probe: ActorTestProbe<String> = self.testKit.makeTestProbe(expecting: String.self)
+        let behavior: Behavior<String> = .receive { context, message in
             context.log.info("HELLO")
-            p.tell("Received: \(message)")
-            p.tell("Dispatcher: \((context as! _ActorShell<String>)._dispatcher.name)")
+            probe.tell("Received: \(message)")
+            probe.tell("Dispatcher: \((try XCTUnwrap(context as? ActorShell<String>)).messageDispatcher.name)")
             return .same
         }
 
-        let w = try system._spawn(.anonymous, props: .dispatcher(.nio(self.eventLoopGroup)), behavior)
-        w.tell("Hello")
+        let worker: ActorRef<String> = try system.spawn(
+            .anonymous,
+            behavior,
+            props: .dispatcher(
+                .nio(
+                    self.eventLoopGroup
+                )
+            )
+        )
+        worker.tell("Hello")
 
-        let received: String = try p.expectMessage()
+        let received: String = try probe.expectMessage()
         received.dropFirst("Received: ".count).shouldEqual("Hello")
 
-        let dispatcher: String = try p.expectMessage()
+        let dispatcher: String = try probe.expectMessage()
         dispatcher.dropFirst("Dispatcher: ".count).shouldStartWith(prefix: "nio:")
     }
 
-    // ==== ----------------------------------------------------------------------------------------------------------------
+    // ====
+    // ----------------------------------------------------------------------------------------------------------------
     // MARK: Grand Central Dispatch
 
-    func test_runOn_dispatchQueue() throws {
-        let p = self.testKit.makeTestProbe(expecting: String.self)
-        let behavior: _Behavior<String> = .receive { context, message in
+    internal func test_runOn_dispatchQueue() throws {
+        let probe: ActorTestProbe<String> = self.testKit.makeTestProbe(expecting: String.self)
+        let behavior: Behavior<String> = .receive { context, message in
             context.log.info("HELLO")
-            p.tell("\(message)")
-            p.tell("\((context as! _ActorShell<String>)._dispatcher.name)")
+            probe.tell("\(message)")
+            probe.tell("\((try XCTUnwrap(context as? ActorShell<String>)).messageDispatcher.name)")
             return .same
         }
 
         let global: DispatchQueue = .global()
-        let w = try system._spawn(.anonymous, props: .dispatcher(.dispatchQueue(global)), behavior)
-        w.tell("Hello")
-        w.tell("World")
+        let worker: ActorRef<String> = try system.spawn(
+            .anonymous,
+            behavior,
+            props: .dispatcher(
+                .dispatchQueue(
+                    global
+                )
+            )
+        )
+        worker.tell("Hello")
+        worker.tell("World")
 
-        func expectWasOnDispatchQueue(p: ActorTestProbe<String>) throws {
+        func expectWasOnDispatchQueue(probe: ActorTestProbe<String>) throws {
             #if os(Linux)
-            try p.expectMessage().shouldContain("Dispatch.DispatchQueue")
+            try probe.expectMessage().shouldContain("Dispatch.DispatchQueue")
             #else
-            try p.expectMessage().shouldContain("OS_dispatch_queue_global:")
+            try probe.expectMessage().shouldContain("OS_dispatch_queue_global:")
             #endif
         }
 
-        try p.expectMessage("Hello")
-        try expectWasOnDispatchQueue(p: p)
+        try probe.expectMessage("Hello")
+        try expectWasOnDispatchQueue(probe: probe)
 
-        try p.expectMessage("World")
-        try expectWasOnDispatchQueue(p: p)
+        try probe.expectMessage("World")
+        try expectWasOnDispatchQueue(probe: probe)
 
-        for i in 1...100 {
-            w.tell("\(i)")
+        for index in 1...100 {
+            worker.tell("\(index)")
         }
-        for i in 1...100 {
-            try p.expectMessage("\(i)")
-            try expectWasOnDispatchQueue(p: p)
+        for index in 1...100 {
+            try probe.expectMessage("\(index)")
+            try expectWasOnDispatchQueue(probe: probe)
         }
     }
 }

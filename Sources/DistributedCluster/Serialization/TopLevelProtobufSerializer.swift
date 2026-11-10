@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,54 +10,76 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Foundation  // for Codable
 import NIO
 import NIOFoundationCompat
 
-internal class _TopLevel_ProtobufSerializer<Message>: Serializer<Message> {
-    let allocator: ByteBufferAllocator
+internal class TopLevelProtobufSerializer<Message>: Serializer<Message> {
+    internal let allocator: ByteBufferAllocator
     private let context: Serialization.Context
 
-    public init(allocator: ByteBufferAllocator, context: Serialization.Context) {
+    internal init(allocator: ByteBufferAllocator, context: Serialization.Context) {
         self.allocator = allocator
         self.context = context
     }
 
-    override public func serialize(_ message: Message) throws -> Serialization.Buffer {
-        guard let repr = message as? _AnyProtobufRepresentable else {
-            throw SerializationError(.unableToSerialize(hint: "Can only serialize Any_InternalProtobufRepresentable types, was: \(String(reflecting: Message.self))"))
+    override internal func serialize(_ message: Message) throws -> Serialization.Buffer {
+        guard let repr = message as? AnyProtobufRepresentable else {
+            throw SerializationError(
+                .unableToSerialize(
+                    hint: "Can only serialize Any_InternalProtobufRepresentable types, was: "
+                        + "\(String(reflecting: Message.self))"
+                )
+            )
         }
 
-        let encoder = TopLevelProtobufBlobEncoder(allocator: self.allocator)
+        let encoder: TopLevelProtobufBlobEncoder = TopLevelProtobufBlobEncoder(allocator: self.allocator)
         encoder.userInfo[.actorSystemKey] = self.context.system
         encoder.userInfo[.actorSerializationContext] = self.context
         try repr.encode(to: encoder)
 
         guard let buffer = encoder.result else {
-            throw SerializationError(.unableToSerialize(hint: "Encoding result of \(TopLevelBytesBlobEncoder.self) was empty, for message: \(message)"))
+            throw SerializationError(
+                .unableToSerialize(
+                    hint: "Encoding result of \(TopLevelBytesBlobEncoder.self) was empty, for message: \(message)"
+                )
+            )
         }
 
-        traceLog_Serialization("serialized to: \(buffer)")
+        traceLog_Serialization(
+            "serialized to: \(buffer)",
+            file: #fileID,
+            line: #line
+        )
         return buffer
     }
 
-    override public func deserialize(from buffer: Serialization.Buffer) throws -> Message {
-        guard let ProtoType = Message.self as? _AnyProtobufRepresentable.Type else {
-            throw SerializationError(.unableToDeserialize(hint: "Can only deserialize Any_InternalProtobufRepresentable but was \(Message.self)"))
+    override internal func deserialize(from _: Serialization.Buffer) throws -> Message {
+        guard let protoType = Message.self as? AnyProtobufRepresentable.Type else {
+            throw SerializationError(
+                .unableToDeserialize(
+                    hint: "Can only deserialize Any_InternalProtobufRepresentable but was \(Message.self)"
+                )
+            )
         }
 
-        let decoder = TopLevelProtobufBlobDecoder()
+        let decoder: TopLevelProtobufBlobDecoder = TopLevelProtobufBlobDecoder()
         decoder.userInfo[.actorSystemKey] = self.context.system
         decoder.userInfo[.actorSerializationContext] = self.context
 
-        return try ProtoType.init(from: decoder) as! Message  // explicit .init() is required here (!)
+        guard let message = try protoType.init(from: decoder) as? Message else {
+            throw SerializationError(.unableToDeserialize(hint: "Decoded protobuf does not match \(Message.self)"))
+        }
+        return message
     }
 
-    override public func setSerializationContext(_ context: Serialization.Context) {
-        // self.context = context
+    override internal func setSerializationContext(_: Serialization.Context) {
+        // The serialization context is fixed when this serializer is initialized.
     }
 
-    override public func setUserInfo<Value>(key: CodingUserInfoKey, value: Value?) {}
+    override internal func setUserInfo<Value>(key _: CodingUserInfoKey, value _: Value?) {
+        // Protobuf decoding uses only the immutable serialization context above.
+    }
 }

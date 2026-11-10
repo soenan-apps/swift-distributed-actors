@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import NIOSSL
@@ -18,9 +18,9 @@ import XCTest
 
 @testable import DistributedCluster
 
-final class ClusterOnDownActionTests: ClusteredActorSystemsXCTestCase {
-    func test_onNodeDowned_performShutdown() async throws {
-        let (first, second) = await self.setUpPair { settings in
+internal final class ClusterOnDownActionTests: ClusteredActorSystemsXCTestCase {
+    internal func test_onNodeDowned_performShutdown() async throws {
+        let (first, second): (ClusterSystem, ClusterSystem) = await self.setUpPair { settings in
             settings.onDownAction = .gracefulShutdown(delay: .milliseconds(300))
         }
 
@@ -32,14 +32,17 @@ final class ClusterOnDownActionTests: ClusteredActorSystemsXCTestCase {
 
         try self.testKit(first).eventually(within: .seconds(3)) {
             guard first.isShuttingDown else {
-                throw TestError("System \(first) was not shutting down. It was marked down and the default onDownAction should have triggered!")
+                throw TestError(
+                    "System \(first) was not shutting down. "
+                        + "It was marked down and the default onDownAction should have triggered!"
+                )
             }
         }
     }
 
-    func test_onNodeDowned_configuredNoop_doNothing() async throws {
-        let (first, second) = await setUpPair { settings in
-            settings.onDownAction = .none
+    internal func test_onNodeDowned_configuredNoop_doNothing() async throws {
+        let (first, second): (ClusterSystem, ClusterSystem) = await setUpPair { settings in
+            settings.onDownAction = .disabled
         }
 
         try await self.joinNodes(node: first, with: second)

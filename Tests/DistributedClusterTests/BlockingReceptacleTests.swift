@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,51 +10,51 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import XCTest
 
 @testable import DistributedCluster
 
-class BlockingReceptacleTests: XCTestCase {
-    func test_blockingReceptacle_singleThreadedOfferWait() {
+internal final class BlockingReceptacleTests: XCTestCase {
+    internal func test_blockingReceptacle_singleThreadedOfferWait() {
         let receptacle: BlockingReceptacle<String> = BlockingReceptacle()
 
         receptacle.offerOnce("hello")
-        let res = receptacle.wait(atMost: .milliseconds(10))
+        let res: String? = receptacle.wait(atMost: .milliseconds(10))
         res.shouldEqual("hello")
     }
 
-    func test_blockingReceptacle_twoThreads() throws {
+    internal func test_blockingReceptacle_twoThreads() throws {
         let receptacle: BlockingReceptacle<String> = BlockingReceptacle()
 
-        _ = try _Thread {
+        _ = try ClusterThread {
             receptacle.offerOnce("hello")
         }
 
-        let res = receptacle.wait(atMost: .milliseconds(200))
+        let res: String? = receptacle.wait(atMost: .milliseconds(200))
         res.shouldEqual("hello")
     }
 
-    func test_blockingReceptacle_manyWaiters() throws {
+    internal func test_blockingReceptacle_manyWaiters() throws {
         let receptacle: BlockingReceptacle<String> = BlockingReceptacle()
 
-        _ = try _Thread {
-            let res = receptacle.wait(atMost: .milliseconds(200))
+        _ = try ClusterThread {
+            let res: String? = receptacle.wait(atMost: .milliseconds(200))
             res.shouldEqual("hello")
         }
 
-        _ = try _Thread {
-            let res = receptacle.wait(atMost: .milliseconds(200))
+        _ = try ClusterThread {
+            let res: String? = receptacle.wait(atMost: .milliseconds(200))
             res.shouldEqual("hello")
         }
 
-        _ = try _Thread {
+        _ = try ClusterThread {
             receptacle.offerOnce("hello")
         }
 
-        let res = receptacle.wait(atMost: .milliseconds(200))
+        let res: String? = receptacle.wait(atMost: .milliseconds(200))
         res.shouldEqual("hello")
     }
 }

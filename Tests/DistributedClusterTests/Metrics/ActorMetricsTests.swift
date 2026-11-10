@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsConcurrencyHelpers
 import DistributedActorsTestKit
@@ -23,49 +23,45 @@ import XCTest
 @testable import DistributedCluster
 @testable import Metrics
 
-final class ActorMetricsTests: ClusteredActorSystemsXCTestCase {
-    var metrics: TestMetrics! = TestMetrics()
+internal final class ActorMetricsTests: ClusteredActorSystemsXCTestCase {
+    internal let metrics: TestMetrics = TestMetrics()
 
-    override func setUp() {
+    override internal func setUp() {
         super.setUp()
         MetricsSystem.bootstrapInternal(self.metrics)
     }
 
-    override func tearDown() async throws {
+    override internal func tearDown() async throws {
         try await super.tearDown()
-        self.metrics = nil
         MetricsSystem.bootstrapInternal(NOOPMetricsHandler.instance)
     }
 
-    func test_serialization_reportsMetrics() async throws {
-        throw XCTSkip("!!! Skipping test \(#function) !!!")  // FIXME(distributed): this crashes the cluster with a message on setup
+    internal func test_serialization_reportsMetrics() async throws {
+        let first: ClusterSystem = await setUpNode("first")
+        let second: ClusterSystem = await setUpNode("second")
 
-        let first = await setUpNode("first")
-        let second = await setUpNode("second")
-
-        let ref: _ActorRef<String> = try first._spawn(
+        let ref: ActorRef<String> = try first.spawn(
             "measuredActor",
-            props: .metrics(group: "measuredActorGroup", measure: [.deserialization]),
-            _Behavior.receive { _, _ in
+            Behavior.receive { _, _ in
                 .same
-            }
+            },
+            props: .metrics(group: "measuredActorGroup", measure: [.deserialization])
         )
 
-        let remoteRef = second._resolve(ref: ref, onSystem: first)
+        let remoteRef: ActorRef<String> = second.resolve(ref: ref, onSystem: first)
         remoteRef.tell("Hello!")
 
         sleep(6)
-        let gauge = try self.metrics.expectGauge("first.measuredActorGroup.deserialization.size")
-        gauge.lastValue?.shouldEqual(6)
+        try self.metrics.expectGauge("first.measuredActorGroup.deserialization.size").lastValue?.shouldEqual(6)
     }
 
-    func test_mailboxCount_reportsMetrics() async throws {
-        let first = await setUpNode("first")
+    internal func test_mailboxCount_reportsMetrics() async throws {
+        let first: ClusterSystem = await setUpNode("first")
 
-        let one: _ActorRef<String> = try first._spawn(
+        let one: ActorRef<String> = try first.spawn(
             "measuredActor",
-            props: .metrics(group: "measuredActorGroup", measure: [.mailbox]),
-            _Behavior.receive { _, _ in .same }
+            Behavior.receive { _, _ in .same },
+            props: .metrics(group: "measuredActorGroup", measure: [.mailbox])
         )
 
         for _ in 0...256 {
@@ -73,8 +69,7 @@ final class ActorMetricsTests: ClusteredActorSystemsXCTestCase {
         }
 
         sleep(5)
-        let gauge = try self.metrics.expectGauge("first.measuredActorGroup.mailbox.count")
-        // we can't really reliably test that we get to some "maximum" since the actor starts processing messages as they come in
-        gauge.lastValue.shouldEqual(0)  // after processing we must always go back to zero
+        // Processing overlaps delivery, so assert the final drained count rather than a transient maximum.
+        try self.metrics.expectGauge("first.measuredActorGroup.mailbox.count").lastValue.shouldEqual(0)
     }
 }

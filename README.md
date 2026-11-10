@@ -66,19 +66,14 @@ The `cluster.members` gauges also distinguish `status="up"` from `status="joinin
 
 ## Development
 
-This library requires **beta** releases of Swift (5.7+) and Xcode to function property as the `distributed actor` feature is part of that Swift release.
+このforkの開発にはSwift 6.4.1を使います。cluster targetのSwift 5言語モードは`Package.swift`で指定します。lintと通常のコンパイルはホスト上で行い、Static Linux SDKを使う製品imageのビルドとは分けます。
 
-When developing on macOS, please also make sure to update to the latest beta of macOS, as some parts of the Swift runtime necessary for distributed actors to work are part of the Swift runtime library which is shipped _with_ the OS. 
-
-Distributed actors are not back-deployed and require the latest versions of iOS, macOS, watchOS etc.
-
-When developing on **Linux** systems, you can download the [latest Swift 5.7 toolchains from swift.org/downloads](https://www.swift.org/download/#swift-57-development), and use it to try out or run the library like this:
-
+```sh
+swift build --build-tests -Xswiftc -warnings-as-errors
+swift run --package-path Samples SampleDiningPhilosophers distributed
 ```
-$ export TOOLCHAIN=/path/to/toolchain
-$ $TOOLCHAIN/usr/bin/swift test
-$ $TOOLCHAIN/usr/bin/swift run --package-path Samples/ SampleDiningPhilosophers dist
-```
+
+`TransportEnvelope`の動的なメッセージ値は`Sendable`を保証していません。返信をNIOへ渡す箇所にはSwift 5モードでもSendable移行の警告が残ります。`NIOAny`への包装や`@unchecked Sendable`の追加ではこの所有権の問題を解決できません。
 
 ### IDE Support: Xcode
 

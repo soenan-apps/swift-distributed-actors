@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedCluster
 import NIOSSL
@@ -18,13 +18,16 @@ import XCTest
 
 @testable import DistributedActorsTestKit
 
-class ClusteringDocExamples: XCTestCase {
-    func example_config_tls() throws {
+internal final class ClusteringDocExamples: XCTestCase {
+    private func example_config_tls() async throws {
         // tag::config_tls[]
-        let system = ClusterSystem("TestSystem") { settings in
+        let certificates: [NIOSSLCertificateSource] = try NIOSSLCertificate
+            .fromPEMFile("/path/to/certificate.pem")
+            .map { NIOSSLCertificateSource.certificate($0) }
+        let system: ClusterSystem = await ClusterSystem("TestSystem") { settings in
             // ...
             settings.tls = TLSConfiguration.makeServerConfiguration(  // <1>
-                certificateChain: try! NIOSSLCertificate.fromPEMFile("/path/to/certificate.pem").map { NIOSSLCertificateSource.certificate($0) },  // <2>
+                certificateChain: certificates,  // <2>
                 privateKey: .file("/path/to/private-key.pem")  // , // <3>
                 //                certificateVerification: .fullVerification, // <4>
                 //                trustRoots: .file("/path/to/certificateChain.pem")
@@ -34,12 +37,12 @@ class ClusteringDocExamples: XCTestCase {
         }
         // end::config_tls[]
 
-        try! await system.shutdown().wait()
+        try await system.shutdown().wait()
     }
 
-    func example_config_tls_passphrase() throws {
+    private func example_config_tls_passphrase() async throws {
         // tag::config_tls_passphrase[]
-        let system = ClusterSystem("TestSystem") { settings in
+        let system: ClusterSystem = await ClusterSystem("TestSystem") { settings in
             // ...
             settings.tlsPassphraseCallback = { setter in
                 setter([UInt8]("password".utf8))
@@ -47,6 +50,6 @@ class ClusteringDocExamples: XCTestCase {
         }
         // end::config_tls_passphrase[]
 
-        try! await system.shutdown().wait()
+        try await system.shutdown().wait()
     }
 }

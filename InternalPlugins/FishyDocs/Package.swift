@@ -3,7 +3,7 @@
 
 import PackageDescription
 
-let package = Package(
+internal let kPackage: Package = Package(
     name: "FishyDocs",
     platforms: [
         .iOS(.v16),
@@ -17,7 +17,7 @@ let package = Package(
             targets: [
                 "FishyDocsPlugin"
             ]
-        )
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-markdown.git", branch: "main"),
@@ -26,7 +26,6 @@ let package = Package(
     targets: [
         .plugin(
             name: "FishyDocsPlugin",
-            //            capability: .command(intent: .custom(verb: "fishy-docs", description: "Extracts source snippets from fishy-docs annotated docc documentation files")),
             capability: .buildTool(),
             dependencies: [
                 "FishyDocs"
@@ -37,12 +36,6 @@ let package = Package(
             dependencies: [
                 .product(name: "Markdown", package: "swift-markdown"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-            ]
-        ),
-        .testTarget(
-            name: "FishyDocsTests",
-            dependencies: [
-                "FishyDocs"
             ]
         ),
     ]

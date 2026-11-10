@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Distributed
 import DistributedActorsTestKit
@@ -20,36 +20,46 @@ import XCTest
 
 @testable import DistributedCluster
 
-final class ShoutingInterceptor: _Interceptor<String> {
-    let probe: ActorTestProbe<String>?
+internal final class ShoutingInterceptor: Interceptor<String> {
+    internal let probe: ActorTestProbe<String>?
 
-    init(probe: ActorTestProbe<String>? = nil) {
+    internal init(probe: ActorTestProbe<String>? = nil) {
         self.probe = probe
     }
 
-    override func interceptMessage(target: _Behavior<String>, context: _ActorContext<String>, message: String) throws -> _Behavior<String> {
+    override internal func interceptMessage(
+        target: Behavior<String>,
+        context: ActorContext<String>,
+        message: String
+    ) throws -> Behavior<String> {
         self.probe?.tell("from-interceptor:\(message)")
         return try target.interpretMessage(context: context, message: message + "!")
     }
 
-    override func isSame(as other: _Interceptor<String>) -> Bool {
+    override internal func isSame(as _: Interceptor<String>) -> Bool {
         false
     }
 }
 
-final class TerminatedInterceptor<Message: Codable>: _Interceptor<Message> {
-    let probe: ActorTestProbe<_Signals.Terminated>
+internal final class TerminatedInterceptor<Message: Codable>: Interceptor<Message> {
+    internal let probe: ActorTestProbe<Signals.Terminated>
 
-    init(probe: ActorTestProbe<_Signals.Terminated>) {
+    internal init(probe: ActorTestProbe<Signals.Terminated>) {
         self.probe = probe
     }
 
-    override func interceptSignal(target: _Behavior<Message>, context: _ActorContext<Message>, signal: _Signal) throws -> _Behavior<Message> {
+    override internal func interceptSignal(
+        target: Behavior<Message>,
+        context: ActorContext<Message>,
+        signal: Signal
+    ) throws -> Behavior<Message> {
         switch signal {
-        case let terminated as _Signals.Terminated:
+        case let terminated as Signals.Terminated:
             self.probe.tell(terminated)  // we forward all termination signals to someone
-        case is _Signals._PostStop:
+
+        case is Signals.PostStop:
             ()  // ok
+
         default:
             fatalError("Other signal: \(signal)")
             ()
@@ -58,43 +68,213 @@ final class TerminatedInterceptor<Message: Codable>: _Interceptor<Message> {
     }
 }
 
-final class InterceptorTests: SingleClusterSystemXCTestCase {
-    func test_remoteCall_interceptor() async throws {
-        let local = await setUpNode("local") { settings in
+private distributed actor Greeter {
+    typealias ActorSystem = ClusterSystem
+
+    let greeting: String
+
+    init(actorSystem: ActorSystem, greeting: String) {
+        self.actorSystem = actorSystem
+        self.greeting = greeting
+    }
+
+    distributed func greet() -> String {
+        self.greeting
+    }
+
+    distributed func greetThrow(codable: Bool) throws -> String {
+        if codable {
+            throw InterceptorGreeterCodableError()
+        }
+        throw GreeterNonCodableError()
+    }
+
+    distributed func greet(delayNanos: UInt64) async throws -> String {
+        try await Task.sleep(nanoseconds: delayNanos)
+        return self.greet()
+    }
+
+    distributed func muted() {
+        self.actorSystem.log.info("Muted greeting: \(self.greeting)")
+    }
+
+    distributed func mutedThrow(codable: Bool) throws {
+        if codable {
+            throw InterceptorGreeterCodableError()
+        }
+        throw GreeterNonCodableError()
+    }
+
+    distributed func muted(delayNanos: UInt64) async throws {
+        try await Task.sleep(nanoseconds: delayNanos)
+        self.muted()
+    }
+}
+
+private struct GreeterRemoteCallInterceptor: RemoteCallInterceptor {
+    let system: ClusterSystem
+    let greeter: Greeter
+
+    func interceptRemoteCall<Act, Err, Res>(
+        on _: Act,
+
+        target: RemoteCallTarget,
+
+        invocation: inout ClusterSystem.InvocationEncoder,
+
+        throwing _: Err.Type,
+
+        returning _: Res.Type
+    ) async throws -> Res
+    where
+        Act: DistributedActor,
+        Act.ID == ActorID,
+        Err: Error,
+        Res: Codable {
+        guard let interceptedActor = self.greeter as? Act else {
+            throw GreeterRemoteCallInterceptorError()
+        }
+
+        guard
+            let interceptedResult =
+                (try await withCheckedThrowingContinuation { (childContext: CheckedContinuation<Any, Error>) in
+                    Task { [invocation] in
+                        do {
+                            var directDecoder: ClusterInvocationDecoder = ClusterInvocationDecoder(
+                                system: greeter.actorSystem,
+                                invocation: invocation
+                            )
+                            let directReturnHandler: ClusterInvocationResultHandler = ClusterInvocationResultHandler(
+                                directReturnContinuation: childContext
+                            )
+
+                            try await greeter.actorSystem.executeDistributedTarget(
+                                on: interceptedActor,
+
+                                target: target,
+
+                                invocationDecoder: &directDecoder,
+
+                                handler: directReturnHandler
+                            )
+                        } catch {
+                            childContext.resume(throwing: error)
+                        }
+                    }
+                }) as? Res
+        else {
+            throw GreeterRemoteCallInterceptorError()
+        }
+        return interceptedResult
+    }
+
+    func interceptRemoteCallVoid<Act, Err>(
+        on _: Act,
+
+        target: RemoteCallTarget,
+
+        invocation: inout ClusterSystem.InvocationEncoder,
+
+        throwing _: Err.Type
+    ) async throws
+    where
+        Act: DistributedActor,
+        Act.ID == ActorID,
+        Err: Error {
+        guard let interceptedActor = self.greeter as? Act else {
+            throw GreeterRemoteCallInterceptorError()
+        }
+
+        _ = try await withCheckedThrowingContinuation { (childContext: CheckedContinuation<Any, Error>) in
+            Task { [invocation] in
+                do {
+                    var directDecoder: ClusterInvocationDecoder = ClusterInvocationDecoder(
+                        system: greeter.actorSystem,
+                        invocation: invocation
+                    )
+                    let directReturnHandler: ClusterInvocationResultHandler = ClusterInvocationResultHandler(
+                        directReturnContinuation: childContext
+                    )
+
+                    try await greeter.actorSystem.executeDistributedTarget(
+                        on: interceptedActor,
+
+                        target: target,
+
+                        invocationDecoder: &directDecoder,
+
+                        handler: directReturnHandler
+                    )
+                } catch {
+                    childContext.resume(throwing: error)
+                }
+            }
+        }
+    }
+}
+
+private struct InterceptorGreeterCodableError: Error, Codable {}
+private struct GreeterNonCodableError: Error {}
+private struct GreeterRemoteCallInterceptorError: Error, Codable {}
+
+internal final class InterceptorTests: SingleClusterSystemXCTestCase {
+    internal class SignalToStringInterceptor<Message: Codable>: Interceptor<Message> {
+        internal let probe: ActorTestProbe<String>
+
+        internal init(_ probe: ActorTestProbe<String>) {
+            self.probe = probe
+        }
+
+        override internal func interceptSignal(
+            target: Behavior<Message>,
+            context: ActorContext<Message>,
+            signal: Signal
+        ) throws -> Behavior<Message> {
+            self.probe.tell("intercepted:\(signal)")
+            return try target.interpretSignal(context: context, signal: signal)
+        }
+    }
+
+    internal func test_remoteCall_interceptor() async throws {
+        let local: ClusterSystem = await setUpNode("local") { settings in
             settings.enabled = true
         }
-        let remote = await setUpNode("remote") { settings in
+        let remote: ClusterSystem = await setUpNode("remote") { settings in
             settings.enabled = true
         }
         local.cluster.join(endpoint: remote.cluster.endpoint)
 
-        let otherGreeter = Greeter(actorSystem: local, greeting: "HI!!!")
+        let otherGreeter: Greeter = Greeter(actorSystem: local, greeting: "HI!!!")
         let localGreeter: Greeter = try system.interceptCalls(
             to: Greeter.self,
+
             metadata: ActorMetadata(),
+
             interceptor: GreeterRemoteCallInterceptor(system: local, greeter: otherGreeter)
         )
 
-        let value = try await shouldNotThrow {
+        let value: String = try await shouldNotThrow {
             try await localGreeter.greet()
         }
         value.shouldEqual("HI!!!")
     }
 
-    func test_remoteCallVoid_interceptor() async throws {
-        let local = await setUpNode("local") { settings in
+    internal func test_remoteCallVoid_interceptor() async throws {
+        let local: ClusterSystem = await setUpNode("local") { settings in
             settings.enabled = true
         }
-        let remote = await setUpNode("remote") { settings in
+        let remote: ClusterSystem = await setUpNode("remote") { settings in
             settings.enabled = true
         }
         local.cluster.join(endpoint: remote.cluster.endpoint)
 
-        let otherGreeter = Greeter(actorSystem: local, greeting: "HI!!!")
+        let otherGreeter: Greeter = Greeter(actorSystem: local, greeting: "HI!!!")
         let localGreeter: Greeter = try shouldNotThrow {
             try system.interceptCalls(
                 to: Greeter.self,
+
                 metadata: ActorMetadata(),
+
                 interceptor: GreeterRemoteCallInterceptor(system: local, greeter: otherGreeter)
             )
         }
@@ -107,45 +287,46 @@ final class InterceptorTests: SingleClusterSystemXCTestCase {
 
     // Legacy interceptor API tests -----------------------------------------------------------------------------------
 
-    func test_interceptor_shouldConvertMessages() throws {
-        let p: ActorTestProbe<String> = self.testKit.makeTestProbe()
+    internal func test_interceptor_shouldConvertMessages() throws {
+        let probeForTest: ActorTestProbe<String> = self.testKit.makeTestProbe()
 
-        let interceptor = ShoutingInterceptor()
+        let interceptor: ShoutingInterceptor = ShoutingInterceptor()
 
-        let forwardToProbe: _Behavior<String> = .receiveMessage { message in
-            p.tell(message)
+        let forwardToProbe: Behavior<String> = .receiveMessage { message in
+            probeForTest.tell(message)
             return .same
         }
 
-        let ref: _ActorRef<String> = try system._spawn(
+        let ref: ActorRef<String> = try system.spawn(
             "theWallsHaveEars",
+
             .intercept(behavior: forwardToProbe, with: interceptor)
         )
 
-        for i in 0...10 {
-            ref.tell("hello:\(i)")
+        for index in 0...10 {
+            ref.tell("hello:\(index)")
         }
 
-        for i in 0...10 {
-            try p.expectMessage("hello:\(i)!")
+        for index in 0...10 {
+            try probeForTest.expectMessage("hello:\(index)!")
         }
     }
 
-    func test_interceptor_shouldSurviveDeeplyNestedInterceptors() throws {
-        let p: ActorTestProbe<String> = self.testKit.makeTestProbe()
-        let i: ActorTestProbe<String> = self.testKit.makeTestProbe()
+    internal func test_interceptor_shouldSurviveDeeplyNestedInterceptors() throws {
+        let probeForTest: ActorTestProbe<String> = self.testKit.makeTestProbe()
+        let index: ActorTestProbe<String> = self.testKit.makeTestProbe()
 
-        let makeStringsLouderInterceptor = ShoutingInterceptor(probe: i)
+        let makeStringsLouderInterceptor: ShoutingInterceptor = ShoutingInterceptor(probe: index)
 
         // just like in the movie "Inception"
-        func interceptionInceptionBehavior(currentDepth depth: Int, stopAt limit: Int) -> _Behavior<String> {
-            let behavior: _Behavior<String>
+        func interceptionInceptionBehavior(currentDepth depth: Int, stopAt limit: Int) -> Behavior<String> {
+            let behavior: Behavior<String>
             if depth < limit {
                 // add another "setup layer"
                 behavior = interceptionInceptionBehavior(currentDepth: depth + 1, stopAt: limit)
             } else {
                 behavior = .receiveMessage { msg in
-                    p.tell("received:\(msg)")
+                    probeForTest.tell("received:\(msg)")
                     return .stop
                 }
             }
@@ -153,175 +334,44 @@ final class InterceptorTests: SingleClusterSystemXCTestCase {
             return .intercept(behavior: behavior, with: makeStringsLouderInterceptor)
         }
 
-        let depth = 50
-        let ref: _ActorRef<String> = try system._spawn(
+        let depth: Int = 50
+        let ref: ActorRef<String> = try system.spawn(
             "theWallsHaveEars",
+
             interceptionInceptionBehavior(currentDepth: 0, stopAt: depth)
         )
 
         ref.tell("hello")
 
-        try p.expectMessage("received:hello!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        for j in 0...depth {
-            let m = "from-interceptor:hello\(String(repeating: "!", count: j))"
-            try i.expectMessage(m)
+        try probeForTest.expectMessage("received:hello!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        for innerIndex in 0...depth {
+            let messageForTest: String = "from-interceptor:hello\(String(repeating: "!", count: innerIndex))"
+            try index.expectMessage(messageForTest)
         }
     }
 
-    class SignalToStringInterceptor<Message: Codable>: _Interceptor<Message> {
-        let probe: ActorTestProbe<String>
+    internal func test_interceptor_shouldRemainWhenReturningStoppingWithPostStop() throws {
+        let probeForTest: ActorTestProbe<String> = self.testKit.makeTestProbe()
 
-        init(_ probe: ActorTestProbe<String>) {
-            self.probe = probe
-        }
-
-        override func interceptSignal(target: _Behavior<Message>, context: _ActorContext<Message>, signal: _Signal) throws -> _Behavior<Message> {
-            self.probe.tell("intercepted:\(signal)")
-            return try target.interpretSignal(context: context, signal: signal)
-        }
-    }
-
-    func test_interceptor_shouldRemainWhenReturningStoppingWithPostStop() throws {
-        let p: ActorTestProbe<String> = self.testKit.makeTestProbe()
-
-        let behavior: _Behavior<String> = .receiveMessage { _ in
+        let behavior: Behavior<String> = .receiveMessage { _ in
             .stop { _ in
-                p.tell("postStop")
+                probeForTest.tell("postStop")
             }
         }
 
-        let interceptedBehavior: _Behavior<String> = .intercept(behavior: behavior, with: SignalToStringInterceptor(p))
+        let interceptedBehavior: Behavior<String> = .intercept(
+            behavior: behavior,
+            with: SignalToStringInterceptor(
+                probeForTest
+            )
+        )
 
-        let ref = try system._spawn(.anonymous, interceptedBehavior)
-        p.watch(ref)
+        let ref: ActorRef<String> = try system.spawn(.anonymous, interceptedBehavior)
+        probeForTest.watch(ref)
         ref.tell("test")
 
-        try p.expectMessage("intercepted:_PostStop()")
-        try p.expectMessage("postStop")
-        try p.expectTerminated(ref)
+        try probeForTest.expectMessage("intercepted:PostStop()")
+        try probeForTest.expectMessage("postStop")
+        try probeForTest.expectTerminated(ref)
     }
 }
-
-private distributed actor Greeter {
-    typealias ID = ClusterSystem.ActorID
-    typealias ActorSystem = ClusterSystem
-
-    let greeting: String
-
-    init(actorSystem: ActorSystem, greeting: String) {
-        self.actorSystem = actorSystem
-        self.greeting = greeting
-    }
-
-    distributed func greet() async throws -> String {
-        self.greeting
-    }
-
-    distributed func greetThrow(codable: Bool) async throws -> String {
-        if codable {
-            throw GreeterCodableError()
-        } else {
-            throw GreeterNonCodableError()
-        }
-    }
-
-    distributed func greet(delayNanos: UInt64) async throws -> String {
-        try await Task.sleep(nanoseconds: delayNanos)
-        return try await self.greet()
-    }
-
-    distributed func muted() async throws {
-        self.actorSystem.log.info("Muted greeting: \(self.greeting)")
-    }
-
-    distributed func mutedThrow(codable: Bool) async throws {
-        if codable {
-            throw GreeterCodableError()
-        } else {
-            throw GreeterNonCodableError()
-        }
-    }
-
-    distributed func muted(delayNanos: UInt64) async throws {
-        try await Task.sleep(nanoseconds: delayNanos)
-        try await self.muted()
-    }
-}
-
-private struct GreeterRemoteCallInterceptor: RemoteCallInterceptor {
-    let system: ClusterSystem
-    let greeter: Greeter
-
-    init(system: ClusterSystem, greeter: Greeter) {
-        self.system = system
-        self.greeter = greeter
-    }
-
-    func interceptRemoteCall<Act, Err, Res>(
-        on actor: Act,
-        target: RemoteCallTarget,
-        invocation: inout ClusterSystem.InvocationEncoder,
-        throwing: Err.Type,
-        returning: Res.Type
-    ) async throws -> Res
-    where
-        Act: DistributedActor,
-        Act.ID == ActorID,
-        Err: Error,
-        Res: Codable
-    {
-        guard let greeter = self.greeter as? Act else {
-            throw GreeterRemoteCallInterceptorError()
-        }
-
-        let anyReturn = try await withCheckedThrowingContinuation { (cc: CheckedContinuation<Any, Error>) in
-            Task { [invocation] in
-                var directDecoder = ClusterInvocationDecoder(system: actor.actorSystem as! ClusterSystem, invocation: invocation)
-                let directReturnHandler = ClusterInvocationResultHandler(directReturnContinuation: cc)
-
-                try await self.greeter.actorSystem.executeDistributedTarget(
-                    on: greeter,
-                    target: target,
-                    invocationDecoder: &directDecoder,
-                    handler: directReturnHandler
-                )
-            }
-        }
-
-        return anyReturn as! Res
-    }
-
-    func interceptRemoteCallVoid<Act, Err>(
-        on actor: Act,
-        target: RemoteCallTarget,
-        invocation: inout ClusterSystem.InvocationEncoder,
-        throwing: Err.Type
-    ) async throws
-    where
-        Act: DistributedActor,
-        Act.ID == ActorID,
-        Err: Error
-    {
-        guard let greeter = self.greeter as? Act else {
-            throw GreeterRemoteCallInterceptorError()
-        }
-
-        _ = try await withCheckedThrowingContinuation { (cc: CheckedContinuation<Any, Error>) in
-            Task { [invocation] in
-                var directDecoder = ClusterInvocationDecoder(system: actor.actorSystem as! ClusterSystem, invocation: invocation)
-                let directReturnHandler = ClusterInvocationResultHandler(directReturnContinuation: cc)
-
-                try await self.greeter.actorSystem.executeDistributedTarget(
-                    on: greeter,
-                    target: target,
-                    invocationDecoder: &directDecoder,
-                    handler: directReturnHandler
-                )
-            }
-        }
-    }
-}
-
-private struct GreeterCodableError: Error, Codable {}
-private struct GreeterNonCodableError: Error {}
-private struct GreeterRemoteCallInterceptorError: Error, Codable {}

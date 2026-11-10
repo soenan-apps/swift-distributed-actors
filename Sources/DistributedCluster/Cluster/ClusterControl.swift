@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Distributed
 import DistributedActorsConcurrencyHelpers
@@ -22,39 +22,6 @@ import NIO
 
 /// Allows controlling the cluster, e.g. by issuing join/down commands, or subscribing to cluster events.
 public struct ClusterControl {
-    /// Settings the cluster node is configured with.
-    public let settings: ClusterSystemSettings
-
-    /// Sequence of cluster events.
-    ///
-    /// This sequence begins with a snapshot of the current cluster state and continues with events representing changes
-    /// since the snapshot.
-    public let events: ClusterEventStream
-
-    /// Offers a snapshot of membership, which may be used to perform ad-hoc tests against the membership.
-    /// Note that this view may be immediately outdated after checking if, if e.g. a membership change is just being processed.
-    ///
-    /// Consider subscribing to `cluster.events` in order to react to membership changes dynamically, and never miss a change.
-    ///
-    /// It is guaranteed that a `membershipSnapshot` is always at-least as up-to-date as an emitted ``Cluster/Event``.
-    /// It may be "ahead" however, for example if a series of 3 events are published closely one after another,
-    /// if one were to observe the `cluster.membershipSnapshot` when receiving the first event, it may already contain
-    /// information related to the next two incoming events. For that reason is recommended to stick to one of the ways
-    /// of obtaining the information to act on rather than mixing the two. Use events if transitions state should trigger
-    /// something, and use the snapshot for ad-hoc "one time" membership inspections.
-    public var membershipSnapshot: Cluster.Membership {
-        get async {
-            await self._membershipSnapshotHolder.membership
-        }
-    }
-
-    internal func updateMembershipSnapshot(_ snapshot: Cluster.Membership) {
-        Task {
-            await self._membershipSnapshotHolder.update(snapshot)
-        }
-    }
-
-    private let _membershipSnapshotHolder: MembershipHolder
     private actor MembershipHolder {
         var membership: Cluster.Membership
 
@@ -66,20 +33,39 @@ public struct ClusterControl {
             self.membership = membership
         }
     }
+    /// Settings the cluster node is configured with.
+    public let settings: ClusterSystemSettings
+
+    /// Sequence of cluster events.
+    ///
+    /// This sequence begins with a snapshot of the current cluster state and continues with events representing changes
+    /// since the snapshot.
+    public let events: ClusterEventStream
+
+    /// Offers a snapshot of membership, which may be used to perform ad-hoc tests against the membership.
+    /// Note that this view may be immediately outdated after checking if, if e.g. a membership change is just being
+    /// processed.
+    ///
+    /// Consider subscribing to `cluster.events` in order to react to membership changes dynamically, and never miss a
+    /// change.
+    ///
+    /// It is guaranteed that a `membershipSnapshot` is always at-least as up-to-date as an emitted ``Cluster/Event``.
+    /// It may be "ahead" however, for example if a series of 3 events are published closely one after another,
+    /// if one were to observe the `cluster.membershipSnapshot` when receiving the first event, it may already contain
+    /// information related to the next two incoming events. For that reason is recommended to stick to one of the ways
+    /// of obtaining the information to act on rather than mixing the two. Use events if transitions state should
+    /// trigger
+    /// something, and use the snapshot for ad-hoc "one time" membership inspections.
+    public var membershipSnapshot: Cluster.Membership {
+        get async {
+            await self.membershipSnapshotHolder.membership
+        }
+    }
+
+    private let membershipSnapshotHolder: MembershipHolder
 
     private let cluster: ClusterShell?
     internal let ref: ClusterShell.Ref
-
-    init(_ settings: ClusterSystemSettings, cluster: ClusterShell?, clusterRef: ClusterShell.Ref, eventStream: ClusterEventStream) {
-        self.settings = settings
-        self.cluster = cluster
-        self.ref = clusterRef
-        self.events = eventStream
-
-        var initialMembership: Cluster.Membership = .empty
-        _ = initialMembership.join(settings.bindNode)
-        self._membershipSnapshotHolder = ClusterControl.MembershipHolder(membership: initialMembership)
-    }
 
     /// The node value representing _this_ node in the cluster.
     public var node: Cluster.Node {
@@ -89,9 +75,14 @@ public struct ClusterControl {
     /// The cluster member value representing _this_ node in the cluster.
     public var member: Cluster.Member {
         get async {
-            let snapshot = await self.membershipSnapshot
+            let snapshot: Cluster.Membership = await self.membershipSnapshot
             guard let myself = snapshot.member(self.node) else {
-                fatalError("Membership must always have a member for 'self' node, but did not for \(self.node): \(snapshot)")
+                fatalError(
+                    """
+                    Membership must always have a member for 'self' node, \
+                    but did not for \(self.node): \(snapshot)
+                    """
+                )
             }
             return myself
         }
@@ -102,9 +93,32 @@ public struct ClusterControl {
         self.node.endpoint
     }
 
+    internal init(
+        _ settings: ClusterSystemSettings,
+        cluster: ClusterShell?,
+        clusterRef: ClusterShell.Ref,
+        eventStream: ClusterEventStream
+    ) {
+        self.settings = settings
+        self.cluster = cluster
+        self.ref = clusterRef
+        self.events = eventStream
+
+        var initialMembership: Cluster.Membership = .empty
+        _ = initialMembership.join(settings.bindNode)
+        self.membershipSnapshotHolder = Self.MembershipHolder(membership: initialMembership)
+    }
+
+    internal func updateMembershipSnapshot(_ snapshot: Cluster.Membership) {
+        Task {
+            await membershipSnapshotHolder.update(snapshot)
+        }
+    }
+
     /// Instructs the cluster to join the actor system located listening on the passed in host-port pair.
     ///
-    /// There is no specific need to "wait until joined" before one can attempt to send to references located on the cluster member,
+    /// There is no specific need to "wait until joined" before one can attempt to send to references located on the
+    /// cluster member,
     /// as message sends will be buffered until the node associates and joins.
     public func join(host: String, port: Int) {
         self.join(endpoint: Cluster.Endpoint(systemName: "sact", host: host, port: port))
@@ -112,7 +126,8 @@ public struct ClusterControl {
 
     /// Instructs the cluster to join the actor system located listening on the passed in host-port pair.
     ///
-    /// There is no specific need to "wait until joined" before one can attempt to send to references located on the cluster member,
+    /// There is no specific need to "wait until joined" before one can attempt to send to references located on the
+    /// cluster member,
     /// as message sends will be buffered until the node associates and joins.
     public func join(endpoint: Cluster.Endpoint) {
         self.ref.tell(.command(.handshakeWith(endpoint)))
@@ -136,15 +151,22 @@ public struct ClusterControl {
 
     /// Mark *any* currently known member as ``Cluster/MemberStatus/down``.
     ///
-    /// Beware that this API is not very precise and, if possible, the `down(Cluster.Member)` is preferred, as it indicates
-    /// the downing intent of a *specific* actor system instance, rather than any system running on the given host-port pair.
+    /// Beware that this API is not very precise and, if possible, the `down(Cluster.Member)` is preferred, as it
+    /// indicates
+    /// the downing intent of a *specific* actor system instance, rather than any system running on the given host-port
+    /// pair.
     ///
-    /// This action can be performed by any member of the cluster and is immediately effective locally, as well as spread
-    /// to other cluster members which will accept is as truth (even if they cal still reach the member and consider it as `.up` etc).
+    /// This action can be performed by any member of the cluster and is immediately effective locally, as well as
+    /// spread
+    /// to other cluster members which will accept is as truth (even if they cal still reach the member and consider it
+    /// as `.operational` etc).
     ///
-    /// Note that once all members have seen the downed node as `.down` it will be completely *removed* from the membership
-    /// and a tombstone will be stored to prevent it from ever "re-joining" the same cluster. New instances on the same host-port
-    /// pair however are accepted to join the cluster (though technically this is a newly joining node, not really a "re-join").
+    /// Note that once all members have seen the downed node as `.down` it will be completely *removed* from the
+    /// membership
+    /// and a tombstone will be stored to prevent it from ever "re-joining" the same cluster. New instances on the same
+    /// host-port
+    /// pair however are accepted to join the cluster (though technically this is a newly joining node, not really a
+    /// "re-join").
     ///
     /// - SeeAlso: `Cluster.MemberStatus` for more discussion about what the `.down` status implies.
     public func down(endpoint: Cluster.Endpoint) {
@@ -153,113 +175,25 @@ public struct ClusterControl {
 
     /// Mark the passed in `Cluster.Member` as `Cluster.MemberStatus` `.down`.
     ///
-    /// This action can be performed by any member of the cluster and is immediately effective locally, as well as spread
-    /// to other cluster members which will accept is as truth (even if they cal still reach the member and consider it as `.up` etc).
+    /// This action can be performed by any member of the cluster and is immediately effective locally, as well as
+    /// spread
+    /// to other cluster members which will accept is as truth (even if they cal still reach the member and consider it
+    /// as `.operational` etc).
     ///
-    /// Note that once all members have seen the downed node as `.down` it will be completely *removed* from the membership
-    /// and a tombstone will be stored to prevent it from ever "re-joining" the same cluster. New instances on the same host-port
-    /// pair however are accepted to join the cluster (though technically this is a newly joining node, not really a "re-join").
+    /// Note that once all members have seen the downed node as `.down` it will be completely *removed* from the
+    /// membership
+    /// and a tombstone will be stored to prevent it from ever "re-joining" the same cluster. New instances on the same
+    /// host-port
+    /// pair however are accepted to join the cluster (though technically this is a newly joining node, not really a
+    /// "re-join").
     ///
     /// - SeeAlso: `Cluster.MemberStatus` for more discussion about what the `.down` status implies.
     public func down(member: Cluster.Member) {
         self.ref.tell(.command(.downCommandMember(member)))
     }
 
-    /// Wait, within the given duration, until this actor system has joined the cluster and become ``Cluster/MemberStatus/up``.
-    ///
-    /// - Parameters
-    ///   - node: The node to be joined by this system.
-    ///   - within: Duration to wait for.
-    ///
-    /// - Returns `Cluster.Member` for the joined node.
-    @discardableResult
-    public func joined(within: Duration) async throws -> Cluster.Member {
-        // waiting to be "joined" means having passed the "joining" member status
-        let myself = await self.member
-        if myself.status > .joining {
-            return myself
-        }
-
-        return try await self.waitFor(self.node, .up, within: within)
-    }
-
-    /// Wait, within the given duration, until the passed in node has joined the cluster and become ``Cluster/MemberStatus/up``.
-    ///
-    /// - Parameters
-    ///   - node: The node to be joined by this system.
-    ///   - within: Duration to wait for.
-    ///
-    /// - Returns `Cluster.Member` for the joined node.
-    @discardableResult
-    public func joined(node: Cluster.Node, within: Duration) async throws -> Cluster.Member {
-        // waiting to be "joined" means having passed the "joining" member status
-        if let member = await self.membershipSnapshot.member(node),
-            member.status > .joining
-        {
-            return member
-        }
-
-        self.join(node: node)  // kick off the joining process in case we're not trying to already
-        return try await self.waitFor(node, .up, within: within)
-    }
-
-    /// Wait, within the given duration, until the passed in endpoint has joined the cluster and become ``Cluster/MemberStatus/up``.
-    ///
-    /// - Parameters
-    ///   - endpoint: The endpoint to be joined by this system.
-    ///   - within: Duration to wait for.
-    ///
-    /// - Returns `Cluster.Member` for the joined node.
-    @discardableResult
-    public func joined(endpoint: Cluster.Endpoint, within: Duration) async throws -> Cluster.Member? {
-        // waiting to be "joined" means having passed the "joining" member status
-        if let member = await self.membershipSnapshot.anyMember(forEndpoint: endpoint),
-            member.status > .joining
-        {
-            return member
-        }
-
-        self.join(endpoint: endpoint)  // kick off the joining process in case we're not trying to already
-        return try await self.waitFor(endpoint, .up, within: within)
-    }
-
-    /// Wait, within the given duration, for this actor system to be a member of all the nodes' respective cluster and have the specified status.
-    ///
-    /// - Parameters
-    ///   - nodes: The nodes to be joined by this system.
-    ///   - status: The expected member status.
-    ///   - within: Duration to wait for.
-    public func waitFor(_ nodes: some Collection<Cluster.Node>, _ status: Cluster.MemberStatus, within: Duration) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            for node in nodes {
-                group.addTask {
-                    try await self.waitFor(node, status, within: within)
-                }
-            }
-            // loop explicitly to propagate any error that might have been thrown
-            for try await _ in group {}
-        }
-    }
-
-    /// Wait, within the given duration, for this actor system to be a member of all the nodes' respective cluster and have **at least** the specified status.
-    ///
-    /// - Parameters
-    ///   - nodes: The nodes to be joined by this system.
-    ///   - atLeastStatus: The minimum expected member status.
-    ///   - within: Duration to wait for.
-    public func waitFor(_ nodes: some Collection<Cluster.Node>, atLeast atLeastStatus: Cluster.MemberStatus, within: Duration) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            for node in nodes {
-                group.addTask {
-                    _ = try await self.waitFor(node, atLeast: atLeastStatus, within: within)
-                }
-            }
-            // loop explicitly to propagate any error that might have been thrown
-            for try await _ in group {}
-        }
-    }
-
-    /// Wait, within the given duration, for this actor system to be a member of the node's cluster and have the specified status.
+    /// Wait, within the given duration, for this actor system to be a member of the node's cluster and have the
+    /// specified status.
     ///
     /// - Parameters
     ///   - node: The node to be joined by this system.
@@ -267,13 +201,18 @@ public struct ClusterControl {
     ///   - within: Duration to wait for.
     ///
     /// - Returns `Cluster.Member` for the joined node with the expected status.
-    ///         If the expected status is `.down` or `.removed`, and the node is already known to have been removed from the cluster
+    ///         If the expected status is `.down` or `.removed`, and the node is already known to have been removed from
+    /// the cluster
     ///         a synthesized `Cluster/MemberStatus/removed` (and `.unreachable`) member is returned.
     @discardableResult
-    public func waitFor(_ node: Cluster.Node, _ status: Cluster.MemberStatus, within: Duration) async throws -> Cluster.Member {
+    public func waitFor(
+        _ node: Cluster.Node,
+        _ status: Cluster.MemberStatus,
+        within: Duration
+    ) async throws -> Cluster.Member {
         try await self.waitForMembershipEventually(within: within) { membership in
             if status == .down || status == .removed {
-                if let cluster = self.cluster, cluster.getExistingAssociationTombstone(with: node) != nil {
+                if let cluster = cluster, cluster.getExistingAssociationTombstone(with: node) != nil {
                     return Cluster.Member(node: node, status: .removed).asUnreachable
                 }
             }
@@ -283,17 +222,26 @@ public struct ClusterControl {
                     // so we're seeing an already removed member, this can indeed happen and is okey
                     return Cluster.Member(node: node, status: .removed).asUnreachable
                 }
-                throw Cluster.MembershipError(.notFound(node, in: membership))
+                throw Cluster.MembershipError(
+                    .notFound(node, membership: membership),
+                    file: #fileID,
+                    line: #line
+                )
             }
 
             if status != foundMember.status {
-                throw Cluster.MembershipError(.statusRequirementNotMet(expected: status, found: foundMember))
+                throw Cluster.MembershipError(
+                    .statusRequirementNotMet(expected: status, found: foundMember),
+                    file: #fileID,
+                    line: #line
+                )
             }
             return foundMember
         }
     }
 
-    /// Wait, within the given duration, for this actor system to be a member of the node's cluster and have the specified status.
+    /// Wait, within the given duration, for this actor system to be a member of the node's cluster and have the
+    /// specified status.
     ///
     /// - Parameters
     ///   - endpoint: The node to be joined by this system.
@@ -301,26 +249,40 @@ public struct ClusterControl {
     ///   - within: Duration to wait for.
     ///
     /// - Returns `Cluster.Member` for the joined node with the expected status.
-    ///         If the expected status is `.down` or `.removed`, and the node is already known to have been removed from the cluster
+    ///         If the expected status is `.down` or `.removed`, and the node is already known to have been removed from
+    /// the cluster
     ///         a synthesized `Cluster/MemberStatus/removed` (and `.unreachable`) member is returned.
     @discardableResult
-    public func waitFor(_ endpoint: Cluster.Endpoint, _ status: Cluster.MemberStatus, within: Duration) async throws -> Cluster.Member? {
-        try await self.waitForMembershipEventually(Cluster.Member?.self, within: within) { membership in
+    public func waitFor(
+        _ endpoint: Cluster.Endpoint,
+        _ status: Cluster.MemberStatus,
+        within: Duration
+    ) async throws -> Cluster.Member? {
+        try await self.waitForMembershipEventually(within: within) { membership in
             guard let foundMember = membership.anyMember(forEndpoint: endpoint) else {
                 if status == .down || status == .removed {
                     return nil
                 }
-                throw Cluster.MembershipError(.notFoundAny(endpoint, in: membership))
+                throw Cluster.MembershipError(
+                    .notFoundAny(endpoint, membership: membership),
+                    file: #fileID,
+                    line: #line
+                )
             }
 
             if status != foundMember.status {
-                throw Cluster.MembershipError(.statusRequirementNotMet(expected: status, found: foundMember))
+                throw Cluster.MembershipError(
+                    .statusRequirementNotMet(expected: status, found: foundMember),
+                    file: #fileID,
+                    line: #line
+                )
             }
             return foundMember
         }
     }
 
-    /// Wait, within the given duration, for this actor system to be a member of the node's cluster and have **at least** the specified status.
+    /// Wait, within the given duration, for this actor system to be a member of the node's cluster and have **at
+    /// least** the specified status.
     ///
     /// - Parameters
     ///   - node: The node to be joined by this system.
@@ -328,13 +290,18 @@ public struct ClusterControl {
     ///   - within: Duration to wait for.
     ///
     /// - Returns `Cluster.Member` for the joined node with the minimum expected status.
-    ///         If the expected status is at least `.down` or `.removed`, and either a tombstone exists for the node or the associated
+    ///         If the expected status is at least `.down` or `.removed`, and either a tombstone exists for the node or
+    /// the associated
     ///         membership is not found, the `Cluster.Member` returned would have `.removed` status and *unreachable*.
     @discardableResult
-    public func waitFor(_ node: Cluster.Node, atLeast atLeastStatus: Cluster.MemberStatus, within: Duration) async throws -> Cluster.Member {
+    public func waitFor(
+        _ node: Cluster.Node,
+        atLeast atLeastStatus: Cluster.MemberStatus,
+        within: Duration
+    ) async throws -> Cluster.Member {
         try await self.waitForMembershipEventually(within: within) { membership in
             if atLeastStatus == .down || atLeastStatus == .removed {
-                if let cluster = self.cluster, cluster.getExistingAssociationTombstone(with: node) != nil {
+                if let cluster = cluster, cluster.getExistingAssociationTombstone(with: node) != nil {
                     return Cluster.Member(node: node, status: .removed).asUnreachable
                 }
             }
@@ -344,36 +311,46 @@ public struct ClusterControl {
                     // so we're seeing an already removed member, this can indeed happen and is okey
                     return Cluster.Member(node: node, status: .removed).asUnreachable
                 }
-                throw Cluster.MembershipError(.notFound(node, in: membership))
+                throw Cluster.MembershipError(
+                    .notFound(node, membership: membership),
+                    file: #fileID,
+                    line: #line
+                )
             }
 
             if atLeastStatus < foundMember.status {
-                throw Cluster.MembershipError(.atLeastStatusRequirementNotMet(expectedAtLeast: atLeastStatus, found: foundMember))
+                throw Cluster.MembershipError(
+                    .atLeastStatusRequirementNotMet(expectedAtLeast: atLeastStatus, found: foundMember),
+                    file: #fileID,
+                    line: #line
+                )
             }
             return foundMember
         }
     }
 
     private func waitForMembershipEventually<T>(
-        _: T.Type = T.self,
         within: Duration,
         interval: Duration = .milliseconds(100),
         _ block: (Cluster.Membership) async throws -> T
     ) async throws -> T {
-        let deadline = ContinuousClock.Instant.fromNow(within)
+        let deadline: ContinuousClock.Instant = ContinuousClock.Instant.fromNow(within)
 
         var lastError: Error?
         while deadline.hasTimeLeft() {
-            let membership = await self.membershipSnapshot
+            let membership: Cluster.Membership = await self.membershipSnapshot
             do {
-                let result = try await block(membership)
-                return result
+                return try await block(membership)
             } catch {
                 lastError = error
                 try await Task.sleep(nanoseconds: UInt64(interval.nanoseconds))
             }
         }
 
-        throw Cluster.MembershipError(.awaitStatusTimedOut(within, lastError))
+        throw Cluster.MembershipError(
+            .awaitStatusTimedOut(within, lastError),
+            file: #fileID,
+            line: #line
+        )
     }
 }

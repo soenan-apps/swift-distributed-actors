@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Foundation
 import XCTest
@@ -18,8 +18,8 @@ import XCTest
 @testable import DistributedActorsTestKit
 @testable import DistributedCluster
 
-class DurationTests: XCTestCase {
-    func test_duration_rendersPrettyDurations() {
+internal final class DurationTests: XCTestCase {
+    internal func test_duration_rendersPrettyDurations() {
         Duration.nanoseconds(12).prettyDescription.shouldEqual("12ns")
         Duration.microseconds(12).prettyDescription.shouldEqual("12μs")
         Duration.milliseconds(12).prettyDescription.shouldEqual("12ms")

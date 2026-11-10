@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 // tag::imports[]
 
@@ -18,104 +18,73 @@ import DistributedCluster
 import ServiceDiscovery
 import XCTest
 
-@testable import DistributedActorsTestKit
-
 // end::imports[]
 
-class ClusterDocExamples: XCTestCase {
-    func example_receive_behavior() throws {
+internal struct SomeGenericNode: Hashable {
+    internal let host: String
+    internal let port: Int
+}
+
+internal final class ClusterDocExamples: XCTestCase {
+    private func example_receive_behavior() async {
         // tag::joining[]
-        let system = ClusterSystem("ClusterJoining") { settings in
+        let system: ClusterSystem = await ClusterSystem("ClusterJoining") { settings in
             settings.enabled = true  // <1>
             // system will bind by default on `localhost:7337`
         }
 
-        let otherNode = Endpoint(systemName: "ClusterJoining", host: "localhost", port: 8228)
+        let otherNode: Cluster.Endpoint = Cluster.Endpoint(systemName: "ClusterJoining", host: "localhost", port: 8_228)
         system.cluster.join(endpoint: otherNode)  // <2>
 
         // end::joining[]
     }
 
-    func example_discovery_joining_seedNodes() {
-        class SomeSpecificServiceDiscovery: ServiceDiscovery {
-            typealias Service = String
-            typealias Instance = Endpoint
-
-            private(set) var defaultLookupTimeout: DispatchTimeInterval = .seconds(3)
-
-            func lookup(_ service: Service, deadline: DispatchTime?, callback: @escaping (Result<[Instance], Error>) -> Void) {
-                fatalError("lookup(:deadline:callback:) has not been implemented")
-            }
-
-            func subscribe(to service: Service, onNext nextResultHandler: @escaping (Result<[Instance], Error>) -> Void, onComplete completionHandler: @escaping (CompletionReason) -> Void) -> CancellationToken {
-                fatalError("subscribe(to:onNext:onComplete:) has not been implemented")
-            }
-        }
-
+    private func example_discovery_joining_seedNodes<Discovery: ServiceDiscovery>(
+        _ discovery: Discovery
+    ) async where Discovery.Service == String, Discovery.Instance == Cluster.Endpoint {
         // tag::discovery-joining-config[]
-        let system = ClusterSystem("DiscoveryJoining") { settings in
+        let system: ClusterSystem = await ClusterSystem("DiscoveryJoining") { settings in
             settings.discovery = ServiceDiscoverySettings(
-                SomeSpecificServiceDiscovery(),  // pass in the configuration
-                service: "my-service"  // `Service` type aligned with what SomeSpecificServiceDiscovery expects
+                discovery,
+                service: "my-service"
             )
         }
         // end::discovery-joining-config[]
         _ = system
     }
 
-    func example_discovery_joining_seedNodes_2() {
-        struct SomeGenericNode: Hashable {
-            let host: String
-            let port: Int
-        }
-        class SomeGenericServiceDiscovery: ServiceDiscovery {
-            typealias Service = String
-            typealias Instance = SomeGenericNode
-
-            private(set) var defaultLookupTimeout: DispatchTimeInterval = .seconds(3)
-
-            func lookup(_ service: Service, deadline: DispatchTime?, callback: @escaping (Result<[Instance], Error>) -> Void) {
-                fatalError("lookup(:deadline:callback:) has not been implemented")
-            }
-
-            func subscribe(to service: Service, onNext nextResultHandler: @escaping (Result<[Instance], Error>) -> Void, onComplete completionHandler: @escaping (CompletionReason) -> Void) -> CancellationToken {
-                fatalError("subscribe(to:onNext:onComplete:) has not been implemented")
-            }
-        }
+    private func example_discovery_joining_seedNodes_2<Discovery: ServiceDiscovery>(
+        _ discovery: Discovery
+    ) async where Discovery.Service == String, Discovery.Instance == SomeGenericNode {
         // tag::discovery-joining-config-2[]
-        let system = ClusterSystem("DiscoveryJoining") { settings in
+        let system: ClusterSystem = await ClusterSystem("DiscoveryJoining") { settings in
             settings.discovery = ServiceDiscoverySettings(
-                SomeGenericServiceDiscovery(),  // <1>
-                service: "my-service",
-                mapInstanceToNode: { (instance: SomeGenericServiceDiscovery.Instance) -> Endpoint in  // <2>
-                    Endpoint(systemName: "", host: instance.host, port: instance.port)
-                }
-            )
+                discovery,  // <1>
+                service: "my-service"
+            ) { (instance: SomeGenericNode) -> Cluster.Endpoint in  // <2>
+                Cluster.Endpoint(systemName: "", host: instance.host, port: instance.port)
+            }
         }
         // end::discovery-joining-config-2[]
         _ = system
     }
 
-    func example_subscribe_events_apply() throws {
-        let system = ClusterSystem("Sample")
+    private func example_subscribe_events_apply() async throws {
+        let system: ClusterSystem = await ClusterSystem("Sample")
 
-        try system._spawn(
-            .anonymous,
-            of: String.self,
-            .setup { context in
-                // tag::subscribe-events-apply-general[]
-                var membership: Cluster.Membership = .empty  // <1>
+        try system.spawn(.anonymous, .setup { context in
+            // tag::subscribe-events-apply-general[]
+            var membership: Cluster.Membership = .empty  // <1>
 
-                let subRef = context.subReceive(Cluster.Event.self) { event in  // <2>
-                    try membership.apply(event: event)  // <3>
-                    context.log.info("The most up to date membership is: \(membership)")
-                }
-
-                context.system.cluster.events.subscribe(subRef)  // <4>
-                // end::subscribe-events-apply-general[]
-                return .same
+            let subRef: ActorRef<Cluster.Event> = context.subReceive(Cluster.Event.self) { event in  // <2>
+                try membership.apply(event: event)  // <3>
+                context.log.info("The most up to date membership is: \(membership)")
             }
-        )
+
+            context.system.cluster.events.subscribe(subRef)  // <4>
+            // end::subscribe-events-apply-general[]
+            return .same
+        })
 
         // tag::membership-snapshot[]
         let snapshot: Cluster.Membership = system.cluster.membershipSnapshot

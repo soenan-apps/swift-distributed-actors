@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,18 +10,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import XCTest
 
 @testable import DistributedCluster
 
-final class ActorPathTests: XCTestCase {
+internal final class ActorPathTests: XCTestCase {
     // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: ActorPath
 
-    func test_shouldNotAllow_illegalCharacters() throws {
+    internal func test_shouldNotAllow_illegalCharacters() throws {
         try shouldThrow(expected: ActorPathError.self) {
             _ = try ActorPath(root: "")
         }
@@ -30,48 +30,48 @@ final class ActorPathTests: XCTestCase {
         }
     }
 
-    func test_pathsWithSameSegments_shouldBeEqual() throws {
-        let pathA = try ActorPath(root: "test") / ActorPathSegment("foo") / ActorPathSegment("bar")
-        let pathB = try ActorPath(root: "test") / ActorPathSegment("foo") / ActorPathSegment("bar")
+    internal func test_pathsWithSameSegments_shouldBeEqual() throws {
+        let pathA: ActorPath = try ActorPath(root: "test") / ActorPathSegment("foo") / ActorPathSegment("bar")
+        let pathB: ActorPath = try ActorPath(root: "test") / ActorPathSegment("foo") / ActorPathSegment("bar")
 
         pathA.shouldEqual(pathB)
     }
 
-    func test_pathsWithSameSegments_shouldHaveSameHasCode() throws {
-        let pathA = try ActorPath(root: "test") / ActorPathSegment("foo") / ActorPathSegment("bar")
-        let pathB = try ActorPath(root: "test") / ActorPathSegment("foo") / ActorPathSegment("bar")
+    internal func test_pathsWithSameSegments_shouldHaveSameHasCode() throws {
+        let pathA: ActorPath = try ActorPath(root: "test") / ActorPathSegment("foo") / ActorPathSegment("bar")
+        let pathB: ActorPath = try ActorPath(root: "test") / ActorPathSegment("foo") / ActorPathSegment("bar")
 
         pathA.hashValue.shouldEqual(pathB.hashValue)
     }
 
-    func test_path_shouldRenderNicely() throws {
-        let pathA = try ActorPath(root: "test") / ActorPathSegment("foo") / ActorPathSegment("bar")
+    internal func test_path_shouldRenderNicely() throws {
+        let pathA: ActorPath = try ActorPath(root: "test") / ActorPathSegment("foo") / ActorPathSegment("bar")
         pathA.description.shouldEqual("/test/foo/bar")
     }
 
-    func test_pathName_shouldRenderNicely() throws {
-        let pathA = try ActorPath(root: "test") / ActorPathSegment("foo") / ActorPathSegment("bar")
+    internal func test_pathName_shouldRenderNicely() throws {
+        let pathA: ActorPath = try ActorPath(root: "test") / ActorPathSegment("foo") / ActorPathSegment("bar")
 
         pathA.name.description.shouldEqual("bar")
     }
 
-    func test_rootPath_shouldRenderAsExpected() throws {
-        let rootPath = ActorPath._root
+    internal func test_rootPath_shouldRenderAsExpected() {
+        let rootPath: ActorPath = ActorPath.root
 
         "\(rootPath)".shouldEqual("/")
         rootPath.name.shouldEqual("/")
     }
 
-    func test_path_startsWith() throws {
-        let path = try ActorPath(root: "test").appending("foo").appending("bar")
-        path.starts(with: path).shouldBeTrue()  // TODO: fixme consistency of matchers, some throw and some not
+    internal func test_path_startsWith() throws {
+        let path: ActorPath = try ActorPath(root: "test").appending("foo").appending("bar")
+        path.starts(with: path).shouldBeTrue()  // fixme consistency of matchers, some throw and some not
         try path.starts(with: path.appending("nope")).shouldBeFalse()
         try path.starts(with: ActorPath(root: "test").appending("foo").appending("nope")).shouldBeFalse()
         try path.starts(with: ActorPath(root: "test").appending("nein").appending("bar")).shouldBeFalse()
         try path.starts(with: ActorPath(root: "test").appending("foo")).shouldBeTrue()
         try path.starts(with: ActorPath(root: "test")).shouldBeTrue()
-        path.starts(with: ActorPath._root).shouldBeTrue()
+        path.starts(with: ActorPath.root).shouldBeTrue()
 
-        ActorPath._root.starts(with: ActorPath._root).shouldBeTrue()
+        ActorPath.root.starts(with: ActorPath.root).shouldBeTrue()
     }
 }

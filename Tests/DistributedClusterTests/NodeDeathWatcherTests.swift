@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import Foundation
@@ -19,61 +19,62 @@ import XCTest
 
 @testable import DistributedCluster
 
-final class NodeDeathWatcherTests: ClusteredActorSystemsXCTestCase {
-    func test_nodeDeath_shouldFailAllRefsOnSpecificAddress() async throws {
-        let first = await setUpNode("first") { settings in
+internal final class NodeDeathWatcherTests: ClusteredActorSystemsXCTestCase {
+    internal func test_nodeDeath_shouldFailAllRefsOnSpecificAddress() async throws {
+        let first: ClusterSystem = await setUpNode("first") { settings in
             settings.swim.probeInterval = .milliseconds(100)
         }
-        let second = await setUpNode("second") { settings in
+        let second: ClusterSystem = await setUpNode("second") { settings in
             settings.swim.probeInterval = .milliseconds(100)
         }
 
         try await self.joinNodes(node: first, with: second)
 
-        let refOnRemote1: _ActorRef<String> = try second._spawn("remote-1", .ignore)
-        let refOnFirstToRemote1 = first._resolve(ref: refOnRemote1, onSystem: second)
+        let refOnRemote1: ActorRef<String> = try second.spawn("remote-1", .ignore)
+        let refOnFirstToRemote1: ActorRef<String> = first.resolve(ref: refOnRemote1, onSystem: second)
 
-        let refOnRemote2: _ActorRef<String> = try second._spawn("remote-2", .ignore)
-        let refOnFirstToRemote2 = first._resolve(ref: refOnRemote2, onSystem: second)
+        let refOnRemote2: ActorRef<String> = try second.spawn("remote-2", .ignore)
+        let refOnFirstToRemote2: ActorRef<String> = first.resolve(ref: refOnRemote2, onSystem: second)
 
-        let testKit = ActorTestKit(first)
-        let p = testKit.makeTestProbe(expecting: _Signals.Terminated.self)
+        let testKit: ActorTestKit = ActorTestKit(first)
+        let probe: ActorTestProbe<Signals.Terminated> = testKit.makeTestProbe(expecting: Signals.Terminated.self)
 
         // --- prepare actor on [first], which watches remote actors ---
 
-        _ = try first._spawn(
+        _ = try first.spawn(
             "watcher1",
-            _Behavior<String>.setup { context in
+
+            Behavior<String>.setup { context in
                 context.watch(refOnFirstToRemote1)
                 context.watch(refOnFirstToRemote2)
 
-                let recv: _Behavior<String> = .receiveMessage { _ in
+                let recv: Behavior<String> = .receiveMessage { _ in
                     .same
                 }
 
-                return recv.receiveSpecificSignal(_Signals.Terminated.self) { _, terminated in
-                    p.ref.tell(terminated)
+                return recv.receiveSpecificSignal(Signals.Terminated.self) { _, terminated in
+                    probe.ref.tell(terminated)
                     return .same
                 }
             }
         )
 
-        try await self.ensureNodes(.up, nodes: first.cluster.node, second.cluster.node)
+        try await self.ensureNodes(.operational, nodes: first.cluster.node, second.cluster.node)
         first.cluster.down(endpoint: second.cluster.node.endpoint)
 
         // should cause termination of all remote actors, observed by the local actors on [first]
-        let termination1: _Signals.Terminated = try p.expectMessage()
-        let termination2: _Signals.Terminated = try p.expectMessage()
-        let terminations: [_Signals.Terminated] = [termination1, termination2]
-        terminations.shouldContain(where: { terminated in
+        let termination1: Signals.Terminated = try probe.expectMessage()
+        let termination2: Signals.Terminated = try probe.expectMessage()
+        let terminations: [Signals.Terminated] = [termination1, termination2]
+        terminations.shouldContain { terminated in
             (!terminated.existenceConfirmed) && terminated.id.name == "remote-1"
-        })
-        terminations.shouldContain(where: { terminated in
+        }
+        terminations.shouldContain { terminated in
             (!terminated.existenceConfirmed) && terminated.id.name == "remote-2"
-        })
+        }
 
         // should not trigger terminated again for any of the remote refs
         first.cluster.down(endpoint: second.cluster.node.endpoint)
-        try p.expectNoMessage(for: .milliseconds(50))
+        try probe.expectNoMessage(for: .milliseconds(50))
     }
 }

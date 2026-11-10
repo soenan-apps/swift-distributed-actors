@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,13 +10,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Logging
 
 /// Convenience for creating a "no op" logger.
-struct NoopLogger {
-    public static func make() -> Logger {
-        .init(label: "noop", factory: { _ in SwiftLogNoOpLogHandler() })
+internal enum NoopLogger {
+    internal static func make() -> Logger {
+        .init(label: "noop") { _ in SwiftLogNoOpLogHandler() }
     }
 }

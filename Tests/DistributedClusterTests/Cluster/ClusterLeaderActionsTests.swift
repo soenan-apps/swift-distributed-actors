@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import Foundation
@@ -20,32 +20,38 @@ import XCTest
 @testable import DistributedCluster
 
 // Unit tests of the actions, see `ClusterLeaderActionsClusteredTests` for integration tests
-final class ClusterLeaderActionsTests: XCTestCase {
-    let _endpointA = Cluster.Endpoint(systemName: "nodeA", host: "1.1.1.1", port: 7337)
-    let _endpointB = Cluster.Endpoint(systemName: "nodeB", host: "2.2.2.2", port: 8228)
-    let _endpointC = Cluster.Endpoint(systemName: "nodeC", host: "3.3.3.3", port: 9119)
+internal final class ClusterLeaderActionsTests: XCTestCase {
+    private let _endpointA: Cluster.Endpoint = Cluster.Endpoint(systemName: "nodeA", host: "1.1.1.1", port: 7_337)
+    private let _endpointB: Cluster.Endpoint = Cluster.Endpoint(systemName: "nodeB", host: "2.2.2.2", port: 8_228)
+    private let _endpointC: Cluster.Endpoint = Cluster.Endpoint(systemName: "nodeC", host: "3.3.3.3", port: 9_119)
 
-    var allNodes: [Cluster.Node] {
+    private var allNodes: [Cluster.Node] {
         [self.nodeA, self.nodeB, self.nodeC]
     }
 
-    var stateA: ClusterShellState!
-    var stateB: ClusterShellState!
-    var stateC: ClusterShellState!
+    private lazy var stateA: ClusterShellState = ClusterShellState.makeTestMock(side: .server) { settings in
+        settings.endpoint = self._endpointA
+    }
+    private lazy var stateB: ClusterShellState = ClusterShellState.makeTestMock(side: .server) { settings in
+        settings.endpoint = self._endpointB
+    }
+    private lazy var stateC: ClusterShellState = ClusterShellState.makeTestMock(side: .server) { settings in
+        settings.endpoint = self._endpointC
+    }
 
-    var nodeA: Cluster.Node {
+    private var nodeA: Cluster.Node {
         self.stateA.selfNode
     }
 
-    var nodeB: Cluster.Node {
+    private var nodeB: Cluster.Node {
         self.stateB.selfNode
     }
 
-    var nodeC: Cluster.Node {
+    private var nodeC: Cluster.Node {
         self.stateC.selfNode
     }
 
-    override func setUp() {
+    override internal func setUp() {
         self.stateA = ClusterShellState.makeTestMock(side: .server) { settings in
             settings.endpoint = self._endpointA
         }
@@ -75,24 +81,40 @@ final class ClusterLeaderActionsTests: XCTestCase {
         _ = self.stateC.latestGossip.mergeForward(incoming: self.stateA.latestGossip)
     }
 
+    override internal func tearDown() {
+        self.stateA.latestGossipStorage.membership = .empty
+        self.stateA.latestGossipStorage.seen.underlying.removeAll()
+        self.stateB.latestGossipStorage.membership = .empty
+        self.stateB.latestGossipStorage.seen.underlying.removeAll()
+        self.stateC.latestGossipStorage.membership = .empty
+        self.stateC.latestGossipStorage.seen.underlying.removeAll()
+        super.tearDown()
+    }
+
     // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: Moving members to .removed
 
-    func test_leaderActions_removeDownMembers_ifKnownAsDownToAllMembers() {
+    internal func test_leaderActions_removeDownMembers_ifKnownAsDownToAllMembers() throws {
         // make A the leader
-        let makeFirstTheLeader = Cluster.LeadershipChange(oldLeader: nil, newLeader: self.stateA.membership.anyMember(forEndpoint: self.nodeA.endpoint)!)!
+        let leader: Cluster.Member = try XCTUnwrap(
+            self.stateA.membership.anyMember(forEndpoint: self.nodeA.endpoint)
+        )
+        let makeFirstTheLeader: Cluster.LeadershipChange = try XCTUnwrap(
+            Cluster.LeadershipChange(oldLeader: nil, newLeader: leader)
+        )
         _ = self.stateA.applyClusterEvent(.leadershipChange(makeFirstTheLeader))
 
         // time to mark B as .down
         _ = self.stateA.membership.mark(self.nodeB, as: .down)  // only F knows that S is .down
 
         // ensure some nodes are up, so they participate in the convergence check
-        _ = self.stateA.membership.mark(self.nodeA, as: .up)
-        _ = self.stateA.membership.mark(self.nodeC, as: .up)
+        _ = self.stateA.membership.mark(self.nodeA, as: .operational)
+        _ = self.stateA.membership.mark(self.nodeC, as: .operational)
 
-        // not yet converged, the first/third members need to chat some more, to ensure first knows that third knows that second is down
+        // not yet converged, the first/third members need to chat some more, to ensure first knows that third knows
+        // that second is down
         self.stateA.latestGossip.converged().shouldBeFalse()
-        let moveMembersUp = self.stateA.collectLeaderActions()
+        let moveMembersUp: [ClusterShellState.LeaderAction] = self.stateA.collectLeaderActions()
         moveMembersUp.count.shouldEqual(0)
 
         // we tell others about the latest gossip, that B is down
@@ -100,8 +122,8 @@ final class ClusterLeaderActionsTests: XCTestCase {
         self.gossip(from: self.stateA, to: &self.stateC)
 
         // first and second now know that second is down
-        self.stateA.membership.member(self.nodeB)!.status.shouldEqual(.down)
-        self.stateC.membership.member(self.nodeB)!.status.shouldEqual(.down)
+        try XCTUnwrap(self.stateA.membership.member(self.nodeB)).status.shouldEqual(.down)
+        try XCTUnwrap(self.stateC.membership.member(self.nodeB)).status.shouldEqual(.down)
 
         // we gossiped to C, and it knows, but we don't know yet if it knows (if it has received the information)
         self.stateA.latestGossip.converged().shouldBeFalse()
@@ -111,9 +133,10 @@ final class ClusterLeaderActionsTests: XCTestCase {
 
         // now first knows that all other up/leaving members also know about second being .down
         self.stateA.latestGossip.converged().shouldBeTrue()
-        self.stateC.latestGossip.converged().shouldBeTrue()  // also true, but not needed for the leader to make the decision
+        // also true, but not needed for the leader to make the decision
+        self.stateC.latestGossip.converged().shouldBeTrue()
 
-        let hopefullyRemovalActions = self.stateA.collectLeaderActions()
+        let hopefullyRemovalActions: [ClusterShellState.LeaderAction] = self.stateA.collectLeaderActions()
         hopefullyRemovalActions.count.shouldEqual(1)
         guard case .some(.removeMember(let member)) = hopefullyRemovalActions.first else {
             XCTFail("Expected a member removal action, but did not get one, actions: \(hopefullyRemovalActions)")
@@ -133,9 +156,9 @@ final class ClusterLeaderActionsTests: XCTestCase {
         _ = self.gossip(from: self.stateA, to: &self.stateC)
     }
 
-    func test_leaderActions_removeDownMembers_dontRemoveIfDownNotKnownToAllMembersYet() {
+    internal func test_leaderActions_removeDownMembers_dontRemoveIfDownNotKnownToAllMembersYet() throws {
         // A is .down, but
-        self.stateB._latestGossip = .parse(
+        self.stateB.latestGossipStorage = try .parse(
             """
             A.down B.up C.up [leader:B]
             A: A:7 B:2
@@ -143,17 +166,22 @@ final class ClusterLeaderActionsTests: XCTestCase {
             C: A:7 B:5 C:6
             """,
             owner: self.nodeB,
-            nodes: self.allNodes
+            nodes: self.allNodes,
+            file: #file,
+            line: #line
         )
 
         self.stateB.latestGossip.converged().shouldBeFalse()
-        let moveMembersUp = self.stateA.collectLeaderActions()
+        let moveMembersUp: [ClusterShellState.LeaderAction] = self.stateA.collectLeaderActions()
         moveMembersUp.count.shouldEqual(0)
     }
 
     @discardableResult
-    private func gossip(from: ClusterShellState, to: inout ClusterShellState) -> Cluster.MembershipGossip.MergeDirective {
-        to.latestGossip.mergeForward(incoming: from.latestGossip)
+    private func gossip(
+        from source: ClusterShellState,
+        to target: inout ClusterShellState
+    ) -> Cluster.MembershipGossip.MergeDirective {
+        target.latestGossip.mergeForward(incoming: source.latestGossip)
     }
 
     // ==== ------------------------------------------------------------------------------------------------------------

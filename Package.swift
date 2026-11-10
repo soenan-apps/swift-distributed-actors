@@ -7,23 +7,23 @@ import class Foundation.ProcessInfo
 
 // Workaround: Since we cannot include the flat just as command line options since then it applies to all targets,
 // and ONE of our dependencies currently produces one warning, we have to use this workaround to enable it in _our_
-// targets when the flag is set. We should remove the dependencies and then enable the flag globally though just by passing it.
-var globalSwiftSettings: [SwiftSetting] = []
+// targets when the flag is set. We should remove the dependencies and enable the flag globally by passing it.
+internal var globalSwiftSettings: [SwiftSetting] = []
 
 // ==== ----------------------------------------------------------------------------------------------------------------
 // MARK: Products
 
-let products: [PackageDescription.Product] = [
+internal let kProducts: [PackageDescription.Product] = [
     .library(
         name: "DistributedCluster",
         targets: ["DistributedCluster"]
-    )
+    ),
 ]
 
 // ==== ----------------------------------------------------------------------------------------------------------------
 // MARK: Targets
 
-var targets: [PackageDescription.Target] = [
+internal var targets: [PackageDescription.Target] = [
     // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: Cluster
 
@@ -31,7 +31,7 @@ var targets: [PackageDescription.Target] = [
         name: "DistributedCluster",
         dependencies: [
             "DistributedActorsConcurrencyHelpers",
-            "CDistributedActorsMailbox",  // TODO(swift): remove mailbox runtime, use Swift actors directly
+            "CDistributedActorsMailbox",
             .product(name: "OrderedCollections", package: "swift-collections"),
             .product(name: "Atomics", package: "swift-atomics"),
             .product(name: "SWIM", package: "swift-cluster-membership"),
@@ -64,7 +64,7 @@ var targets: [PackageDescription.Target] = [
         swiftSettings: [.swiftLanguageMode(.v5)]
     ),
 
-    // ==== ----------------------------------------------------------------------------------------------------------------
+    // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: Tests
 
     .testTarget(
@@ -94,7 +94,10 @@ var targets: [PackageDescription.Target] = [
     .plugin(
         name: "MultiNodeTestPlugin",
         capability: .command(
-            intent: .custom(verb: "multi-node", description: "Run MultiNodeTestKit based tests across multiple processes or physical compute nodes")
+            intent: .custom(
+                verb: "multi-node",
+                description: "Run MultiNodeTestKit based tests across multiple processes or physical compute nodes"
+            )
             // permissions: needs full network access
         ),
         dependencies: [
@@ -108,7 +111,6 @@ var targets: [PackageDescription.Target] = [
         name: "MultiNodeTestKit",
         dependencies: [
             "DistributedCluster",
-            // "DistributedActorsTestKit", // can't depend on it because it'll pull in XCTest, and that crashes in executable then
             .product(name: "Backtrace", package: "swift-backtrace"),
             .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
             .product(name: "Atomics", package: "swift-atomics"),
@@ -152,7 +154,6 @@ var targets: [PackageDescription.Target] = [
     // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: Integration Tests - `it_` prefixed
 
-    // TODO: convert to multi-node test
     .executableTarget(
         name: "it_Clustered_swim_suspension_reachability",
         dependencies: [
@@ -162,9 +163,8 @@ var targets: [PackageDescription.Target] = [
         swiftSettings: [.swiftLanguageMode(.v5)]
     ),
 
-    // ==== ----------------------------------------------------------------------------------------------------------------
+    // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: Performance / Benchmarks
-    // TODO: Use new benchmarking infra
 
     // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: Internals; NOT SUPPORTED IN ANY WAY
@@ -185,7 +185,7 @@ var targets: [PackageDescription.Target] = [
     ),
 ]
 
-var dependencies: [Package.Dependency] = [
+internal var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/apple/swift-atomics", from: "1.1.0"),
 
     .package(url: "https://github.com/apple/swift-cluster-membership", from: "0.4.0"),
@@ -197,7 +197,6 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/apple/swift-protobuf", from: "1.25.1"),
 
     // ~~~ backtraces ~~~
-    // TODO: optimally, library should not pull swift-backtrace
     .package(url: "https://github.com/swift-server/swift-backtrace", from: "1.1.1"),
 
     // ~~~ Swift libraries ~~~
@@ -223,7 +222,7 @@ if ProcessInfo.processInfo.environment["VALIDATE_DOCS"] != nil {
     )
 
     targets.append(
-        // ==== ------------------------------------------------------------------------------------------------------------
+        // ==== --------------------------------------------------------------------------------------------------------
         // MARK: Documentation
 
         // Target used to verify compilation of code snippets from documentation
@@ -242,29 +241,14 @@ if ProcessInfo.processInfo.environment["VALIDATE_DOCS"] != nil {
     )
 }
 
-// This is a workaround since current published nightly docker images don't have the latest Swift availabilities yet
-let platforms: [SupportedPlatform]?
-#if os(Linux)
-platforms = nil
-#else
-platforms = [
-    // we require the 'distributed actor' language and runtime feature:
-    .iOS(.v18),
-    .macOS(.v15),
-    .tvOS(.v18),
-    .watchOS(.v11),
-]
-#endif
-
-var package = Package(
+internal var package: Package = Package(
     name: "swift-distributed-actors",
-    platforms: platforms,
-    products: products,
+    products: kProducts,
 
     dependencies: dependencies,
 
     targets: targets.map { target in
-        var swiftSettings = target.swiftSettings ?? []
+        var swiftSettings: [SwiftSetting] = target.swiftSettings ?? []
         if target.type != .plugin {
             swiftSettings.append(contentsOf: globalSwiftSettings)
         }
@@ -277,16 +261,29 @@ var package = Package(
     cxxLanguageStandard: .cxx11
 )
 
+// Published Linux nightly images do not yet have the latest Swift availabilities.
+#if !os(Linux)
+package.platforms = [
+    // Require the distributed actor language and runtime feature.
+    .iOS(.v18),
+    .macOS(.v15),
+    .tvOS(.v18),
+    .watchOS(.v11),
+]
+#endif
+
 // ---    STANDARD CROSS-REPO SETTINGS DO NOT EDIT   --- //
 for target in package.targets {
     switch target.type {
     case .regular, .test, .executable:
-        var settings = target.swiftSettings ?? []
+        var settings: [SwiftSetting] = target.swiftSettings ?? []
         // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0444-member-import-visibility.md
         settings.append(.enableUpcomingFeature("MemberImportVisibility"))
         target.swiftSettings = settings
+
     case .macro, .plugin, .system, .binary:
         ()  // not applicable
+
     @unknown default:
         ()  // we don't know what to do here, do nothing
     }

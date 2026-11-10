@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import Logging
@@ -19,10 +19,10 @@ import XCTest
 
 @testable import DistributedCluster
 
-final class ShootTheOtherNodeClusteredTests: ClusteredActorSystemsXCTestCase {
-    override func configureLogCapture(settings: inout LogCapture.Settings) {
+internal final class ShootTheOtherNodeClusteredTests: ClusteredActorSystemsXCTestCase {
+    override internal func configureLogCapture(settings: inout LogCapture.Settings) {
         settings.excludeGrep = [
-            "_TimerKey"
+            "TimerKey"
         ]
         settings.excludeActorPaths = [
             "/system/cluster/swim"
@@ -30,14 +30,19 @@ final class ShootTheOtherNodeClusteredTests: ClusteredActorSystemsXCTestCase {
         settings.minimumLogLevel = .info
     }
 
-    func test_shootOtherNodeShouldTerminateIt() async throws {
-        let (local, remote) = await setUpPair()
+    internal func test_shootOtherNodeShouldTerminateIt() async throws {
+        let (local, remote): (ClusterSystem, ClusterSystem) = await setUpPair()
 
         // also assures they are associated
-        try await self.joinNodes(node: local, with: remote, ensureWithin: .seconds(5), ensureMembers: .up)
+        try await self.joinNodes(node: local, with: remote, ensureWithin: .seconds(5), ensureMembers: .operational)
 
-        let remoteAssociationControlState0 = local._cluster!.getEnsureAssociation(with: remote.cluster.node)
-        guard case ClusterShell.StoredAssociationState.association(let remoteControl0) = remoteAssociationControlState0 else {
+        let remoteAssociationControlState0: ClusterShell.StoredAssociationState =
+            try XCTUnwrap(local.clusterShell).getEnsureAssociation(with: remote.cluster.node)
+        guard
+            case ClusterShell.StoredAssociationState.association(
+                let remoteControl0
+            ) = remoteAssociationControlState0
+        else {
             throw Boom("Expected the association to exist for \(remote.cluster.node)")
         }
 

@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,23 +10,23 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedCluster
 
-final class DiningPhilosophers {
+internal final class DiningPhilosophers {
     private var forks: [Fork] = []
     private var philosophers: [Philosopher] = []
 
-    func run(for duration: Duration) async throws {
-        let system = await ClusterSystem("Philosophers")
+    internal func run(for duration: Duration) async {
+        let system: ClusterSystem = await ClusterSystem("Philosophers")
 
         // prepare 5 forks, the resources, that the philosophers will compete for:
-        let fork1 = Fork(name: "fork-1", actorSystem: system)
-        let fork2 = Fork(name: "fork-2", actorSystem: system)
-        let fork3 = Fork(name: "fork-3", actorSystem: system)
-        let fork4 = Fork(name: "fork-4", actorSystem: system)
-        let fork5 = Fork(name: "fork-5", actorSystem: system)
+        let fork1: Fork = Fork(name: "fork-1", actorSystem: system)
+        let fork2: Fork = Fork(name: "fork-2", actorSystem: system)
+        let fork3: Fork = Fork(name: "fork-3", actorSystem: system)
+        let fork4: Fork = Fork(name: "fork-4", actorSystem: system)
+        let fork5: Fork = Fork(name: "fork-5", actorSystem: system)
         self.forks = [fork1, fork2, fork3, fork4, fork5]
 
         // 5 philosophers, sitting in a circle, with the forks between them:
@@ -38,6 +38,6 @@ final class DiningPhilosophers {
             Philosopher(name: "Erik", leftFork: fork4, rightFork: fork5, actorSystem: system),
         ]
 
-        _Thread.sleep(duration)
+        ClusterThread.sleep(duration)
     }
 }

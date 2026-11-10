@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Foundation
 import NIO
@@ -18,12 +18,11 @@ import NIOFoundationCompat
 
 @testable import DistributedCluster
 
-// FIXME: this is obviously not a good idea
-private let testOnlyAllocator = ByteBufferAllocator()
+private let kTestOnlyAllocator: ByteBufferAllocator = ByteBufferAllocator()
 
 extension Data {
     /// For easier testing, as we want all our assertions etc on ByteBuffers
     public func copyToNewByteBuffer() -> ByteBuffer {
-        self._copyToByteBuffer(allocator: testOnlyAllocator)
+        self.copyToByteBuffer(allocator: kTestOnlyAllocator)
     }
 }

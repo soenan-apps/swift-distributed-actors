@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,12 +10,34 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 // ==== ----------------------------------------------------------------------------------------------------------------
-// MARK: _ReceptionistInstrumentation
+// MARK: Noop ReceptionistInstrumentation
 
-protocol _ReceptionistInstrumentation: Sendable {
+internal struct NoopReceptionistInstrumentation: ReceptionistInstrumentation {
+
+    internal func actorSubscribed(key _: AnyReceptionKey, id _: ActorID) {
+        // Instrumentation is disabled for this provider.
+    }
+
+    internal func actorRegistered(key _: AnyReceptionKey, id _: ActorID) {
+        // Instrumentation is disabled for this provider.
+    }
+
+    internal func actorRemoved(key _: AnyReceptionKey, id _: ActorID) {
+        // Instrumentation is disabled for this provider.
+    }
+
+    internal func listingPublished(key _: AnyReceptionKey, subscribers _: Int, registrations _: Int) {
+        // Instrumentation is disabled for this provider.
+    }
+}
+
+// ==== ----------------------------------------------------------------------------------------------------------------
+// MARK: ReceptionistInstrumentation
+
+internal protocol ReceptionistInstrumentation: Sendable {
     init()
 
     func actorSubscribed(key: AnyReceptionKey, id: ActorID)
@@ -23,21 +45,6 @@ protocol _ReceptionistInstrumentation: Sendable {
     func actorRegistered(key: AnyReceptionKey, id: ActorID)
     func actorRemoved(key: AnyReceptionKey, id: ActorID)
 
-    // TODO: lookup separately?
+    // lookup separately?
     func listingPublished(key: AnyReceptionKey, subscribers: Int, registrations: Int)
-}
-
-// ==== ----------------------------------------------------------------------------------------------------------------
-// MARK: Noop ReceptionistInstrumentation
-
-struct NoopReceptionistInstrumentation: _ReceptionistInstrumentation {
-    public init() {}
-
-    func actorSubscribed(key: AnyReceptionKey, id: ActorID) {}
-
-    func actorRegistered(key: AnyReceptionKey, id: ActorID) {}
-
-    func actorRemoved(key: AnyReceptionKey, id: ActorID) {}
-
-    func listingPublished(key: AnyReceptionKey, subscribers: Int, registrations: Int) {}
 }

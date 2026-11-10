@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import SWIM
@@ -19,8 +19,30 @@ import XCTest
 @testable import DistributedCluster
 
 // "Get down!"
-final class DowningClusteredTests: ClusteredActorSystemsXCTestCase {
-    override func configureLogCapture(settings: inout LogCapture.Settings) {
+internal final class DowningClusteredTests: ClusteredActorSystemsXCTestCase {
+    internal enum NodeStopMethod {
+        case downFromOtherMember
+        case downSelf
+        case leaveSelfNode
+        case shutdownSelf
+    }
+
+    /// Selects which node to stop
+    internal enum StopNodeSelection {
+        // the first node is going to be the leader,
+        // so testing for downing the leader and a non-leader is recommended.
+        case firstLeader
+        case secondNonLeader
+    }
+
+    // ==== --------------------------------------------------------------------------------------------------------
+    // MARK: Shared Settings
+
+    internal var downingStrategy: DowningStrategySettings {
+        .timeout(.init(downUnreachableMembersAfter: .milliseconds(200)))
+    }
+
+    override internal func configureLogCapture(settings: inout LogCapture.Settings) {
         settings.excludeActorPaths = [
             "/system/replicator",
             "/system/replicator/gossip",
@@ -29,268 +51,285 @@ final class DowningClusteredTests: ClusteredActorSystemsXCTestCase {
         ]
     }
 
-    enum NodeStopMethod {
-        case leaveSelfNode  // TODO: eventually this one will be more graceful, ensure others see us leave etc
-        case downSelf
-        case shutdownSelf
-        case downFromOtherMember
-    }
-
-    /// Selects which node to stop
-    enum StopNodeSelection {
-        case firstLeader  // the first node is going to be the leader, so testing for downing the leader and a non-leader is recommended.
-        case secondNonLeader
-    }
-
-    // ==== ----------------------------------------------------------------------------------------------------------------
-    // MARK: Shared Settings
-
-    private var downingStrategy: DowningStrategySettings {
-        .timeout(.init(downUnreachableMembersAfter: .milliseconds(200)))
-    }
-
-    // ==== ----------------------------------------------------------------------------------------------------------------
+    // ==== --------------------------------------------------------------------------------------------------------
     // MARK: Downing
 
-    func shared_stoppingNode_shouldPropagateToOtherNodesAsDown(
+    internal func shared_stoppingNode_shouldPropagateToOtherNodesAsDown(
         stopMethod: NodeStopMethod,
         stopNode: StopNodeSelection,
-        _ modifySettings: ((inout ClusterSystemSettings) -> Void)? = nil
+        _ modifySettings: ((inout ClusterSystemSettings) -> Void)?
     ) async throws {
-        let (first, second) = await self.setUpPair { settings in
+        let (first, second): (ClusterSystem, ClusterSystem) = await self.setUpPair { settings in
             settings.swim.probeInterval = .milliseconds(500)
             modifySettings?(&settings)
         }
-        let thirdNeverDownSystem = await self.setUpNode("third", modifySettings)
 
-        try await self.joinNodes(node: first, with: second, ensureMembers: .up)
-        try await self.joinNodes(node: thirdNeverDownSystem, with: second, ensureMembers: .up)
+        let thirdNeverDownSystem: ClusterSystem = await self.setUpNode("third", modifySettings)
 
-        let expectedDownSystem: ClusterSystem
-        let otherNotDownPairSystem: ClusterSystem
-        switch stopNode {
-        case .firstLeader:
-            expectedDownSystem = first
-            otherNotDownPairSystem = second
-        case .secondNonLeader:
-            expectedDownSystem = second
-            otherNotDownPairSystem = first
-        }
+        try await self.joinNodes(node: first, with: second, ensureMembers: .operational)
+        try await self.joinNodes(node: thirdNeverDownSystem, with: second, ensureMembers: .operational)
 
-        let expectedDownNode = expectedDownSystem.cluster.node
+        let (expectedDownSystem, otherNotDownPairSystem): (ClusterSystem, ClusterSystem) =
+            self.stoppedNodes(for: stopNode, first: first, second: second)
+
+        let expectedDownNode: Cluster.Node = expectedDownSystem.cluster.node
 
         // we start cluster event probes early, so they get the events one by one as they happen
-        let eventsProbeOther = await self.testKit(otherNotDownPairSystem).spawnClusterEventStreamTestProbe()
-        let eventsProbeThird = await self.testKit(thirdNeverDownSystem).spawnClusterEventStreamTestProbe()
+        let eventsProbeOther: ActorTestProbe<Cluster.Event> =
+            await self.testKit(otherNotDownPairSystem).spawnClusterEventStreamTestProbe()
+        let eventsProbeThird: ActorTestProbe<Cluster.Event> =
+            await self.testKit(thirdNeverDownSystem).spawnClusterEventStreamTestProbe()
 
         // we cause the stop of the target node as expected
-        switch (stopMethod, stopNode) {
-        case (.leaveSelfNode, .firstLeader): first.cluster.leave()
-        case (.leaveSelfNode, .secondNonLeader): second.cluster.leave()
-
-        case (.downSelf, .firstLeader): first.cluster.down(endpoint: first.cluster.node.endpoint)
-        case (.downSelf, .secondNonLeader): second.cluster.down(endpoint: second.cluster.node.endpoint)
-
-        case (.shutdownSelf, .firstLeader): try first.shutdown()
-        case (.shutdownSelf, .secondNonLeader): try second.shutdown()
-
-        case (.downFromOtherMember, .firstLeader): second.cluster.down(endpoint: first.cluster.node.endpoint)
-        case (.downFromOtherMember, .secondNonLeader): thirdNeverDownSystem.cluster.down(endpoint: second.cluster.node.endpoint)
-        }
-
-        func expectedDownMemberEventsFishing(
-            on: ClusterSystem,
-            file: StaticString = #fileID,
-            line: UInt = #line
-        ) -> (Cluster.Event) -> ActorTestProbe<Cluster.Event>.FishingDirective<Cluster.MembershipChange> {
-            pinfo("Expecting [\(expectedDownSystem)] to become [.down] on [\(on.cluster.node.endpoint)], method to stop the node [\(stopMethod)]")
-
-            return { event in
-                switch event {
-                case .membershipChange(let change) where change.node == expectedDownNode && change.isRemoval:
-                    pinfo("\(on.cluster.node.endpoint): \(change)", file: (file), line: line)
-                    return .catchComplete(change)
-                case .membershipChange(let change) where change.node == expectedDownNode:
-                    pinfo("\(on.cluster.node.endpoint): \(change)", file: (file), line: line)
-                    return .catchContinue(change)
-                case .reachabilityChange(let change) where change.member.node == expectedDownNode:
-                    pnote("\(on.cluster.node.endpoint): \(change)", file: (file), line: line)
-                    return .ignore
-                default:
-                    pnote("\(on.cluster.node.endpoint): \(event)", file: (file), line: line)
-                    return .ignore
-                }
-            }
-        }
+        try self.stopNode(
+            using: stopMethod,
+            selected: stopNode,
+            first: first,
+            second: second,
+            observer: thirdNeverDownSystem
+        )
 
         // collect all events regarding the expectedDownNode's membership lifecycle
-        // - the timeout is fairly large here to tolerate slow CI and variations how the events get propagated, normally they propagate quite quickly
-        // - we only check for "did it become down (or was it removed even already), because that's the purpose of these tests
-        //   - we have more specific tests which ensure that a down is issued followed by a removal (and here it happens usually as well,
+        // - the timeout is fairly large here to tolerate slow CI and variations how the events get propagated,
+        // normally they propagate quite quickly
+        // - we only check for "did it become down (or was it removed even already), because that's the purpose of
+        // these tests
+        //   - we have more specific tests which ensure that a down is issued followed by a removal (and here it
+        // happens usually as well,
         //     but in order to de-sensitivize the test to timing, we only check for what we actually care about
-        // note also that technically we may only "so far" only get a down, and that's okay, the removal would follow soon
-        let eventsOnOther = try eventsProbeOther.fishFor(Cluster.MembershipChange.self, within: .seconds(30), expectedDownMemberEventsFishing(on: otherNotDownPairSystem))
-        eventsOnOther.shouldContain(where: { change in change.status.isAtLeast(.down) })
+        // note also that technically we may only "so far" only get a down, and that's okay, the removal would
+        // follow soon
+        let eventsOnOther: [Cluster.MembershipChange] =
+            try eventsProbeOther.fishFor(
+                Cluster.MembershipChange.self,
+                within: .seconds(30),
+                expectedDownMemberEventsFishing(
+                    expectedDownSystem: expectedDownSystem,
+                    expectedDownNode: expectedDownNode,
+                    stopMethod: stopMethod,
+                    on: otherNotDownPairSystem
+                )
+            )
+        eventsOnOther.shouldContain { change in change.status.isAtLeast(.down) }
 
-        let eventsOnThird = try eventsProbeThird.fishFor(Cluster.MembershipChange.self, within: .seconds(30), expectedDownMemberEventsFishing(on: thirdNeverDownSystem))
-        eventsOnThird.shouldContain(where: { change in change.status.isAtLeast(.down) })
+        let eventsOnThird: [Cluster.MembershipChange] =
+            try eventsProbeThird.fishFor(
+                Cluster.MembershipChange.self,
+                within: .seconds(30),
+                expectedDownMemberEventsFishing(
+                    expectedDownSystem: expectedDownSystem,
+                    expectedDownNode: expectedDownNode,
+                    stopMethod: stopMethod,
+                    on: thirdNeverDownSystem
+                )
+            )
+        eventsOnThird.shouldContain { change in change.status.isAtLeast(.down) }
     }
 
-    // ==== ----------------------------------------------------------------------------------------------------------------
-    // MARK: Stop by: cluster.leave() immediate
+    private func stoppedNodes(
+        for selection: StopNodeSelection, first: ClusterSystem, second: ClusterSystem
+    ) -> (ClusterSystem, ClusterSystem) {
+        switch selection {
+        case .firstLeader:
+            return (first, second)
 
-    func test_stopLeader_by_leaveSelfNode_shouldPropagateToOtherNodes() async throws {
-        try await self.shared_stoppingNode_shouldPropagateToOtherNodesAsDown(stopMethod: .leaveSelfNode, stopNode: .firstLeader) { settings in
-            settings.onDownAction = .gracefulShutdown(delay: .seconds(0))
-            settings.autoLeaderElection = .lowestReachable(minNumberOfMembers: 2)
-
-            settings.downingStrategy = self.downingStrategy
+        case .secondNonLeader:
+            return (second, first)
         }
     }
 
-    func test_stopMember_by_leaveSelfNode_shouldPropagateToOtherNodes() async throws {
-        try await self.shared_stoppingNode_shouldPropagateToOtherNodesAsDown(stopMethod: .leaveSelfNode, stopNode: .secondNonLeader) { settings in
-            settings.onDownAction = .gracefulShutdown(delay: .seconds(0))
-            settings.autoLeaderElection = .lowestReachable(minNumberOfMembers: 2)
+    private func stopNode(
+        using method: NodeStopMethod,
+        selected: StopNodeSelection,
+        first: ClusterSystem,
+        second: ClusterSystem,
+        observer: ClusterSystem
+    ) throws {
+        switch (method, selected) {
+        case (.leaveSelfNode, .firstLeader):
+            first.cluster.leave()
 
-            settings.downingStrategy = self.downingStrategy
+        case (.leaveSelfNode, .secondNonLeader):
+            second.cluster.leave()
+
+        case (.downSelf, .firstLeader):
+            first.cluster.down(
+                endpoint:
+                    first.cluster.node.endpoint
+            )
+
+        case (.downSelf, .secondNonLeader):
+            second.cluster.down(
+                endpoint:
+                    second.cluster.node.endpoint
+            )
+
+        case (.shutdownSelf, .firstLeader):
+            try first.shutdown()
+
+        case (.shutdownSelf, .secondNonLeader):
+            try second.shutdown()
+
+        case (.downFromOtherMember, .firstLeader):
+            second.cluster.down(
+                endpoint:
+                    first.cluster.node.endpoint
+            )
+
+        case (.downFromOtherMember, .secondNonLeader):
+            observer.cluster.down(
+                endpoint:
+                    second.cluster.node.endpoint
+            )
         }
     }
 
-    // ==== ----------------------------------------------------------------------------------------------------------------
-    // MARK: Stop by: cluster.down(selfNode)
-
-    func test_stopLeader_by_downSelf_shouldPropagateToOtherNodes() async throws {
-        try await self.shared_stoppingNode_shouldPropagateToOtherNodesAsDown(stopMethod: .downSelf, stopNode: .firstLeader) { settings in
-            settings.onDownAction = .gracefulShutdown(delay: .seconds(0))
-            settings.autoLeaderElection = .lowestReachable(minNumberOfMembers: 2)
-
-            settings.downingStrategy = self.downingStrategy
-        }
-    }
-
-    func test_stopMember_by_downSelf_shouldPropagateToOtherNodes() async throws {
-        try await self.shared_stoppingNode_shouldPropagateToOtherNodesAsDown(stopMethod: .downSelf, stopNode: .secondNonLeader) { settings in
-            settings.onDownAction = .gracefulShutdown(delay: .seconds(0))
-            settings.autoLeaderElection = .lowestReachable(minNumberOfMembers: 2)
-
-            settings.downingStrategy = self.downingStrategy
-        }
-    }
-
-    // ==== ----------------------------------------------------------------------------------------------------------------
-    // MARK: Stop by system.shutdown()
-
-    func test_stopLeader_by_downByMember_shouldPropagateToOtherNodes() async throws {
-        try await self.shared_stoppingNode_shouldPropagateToOtherNodesAsDown(stopMethod: .downFromOtherMember, stopNode: .firstLeader) { settings in
-            settings.onDownAction = .gracefulShutdown(delay: .seconds(0))
-            settings.autoLeaderElection = .lowestReachable(minNumberOfMembers: 2)
-
-            settings.downingStrategy = self.downingStrategy
-        }
-    }
-
-    func test_stopMember_by_downByMember_shouldPropagateToOtherNodes() async throws {
-        try await self.shared_stoppingNode_shouldPropagateToOtherNodesAsDown(stopMethod: .downFromOtherMember, stopNode: .secondNonLeader) { settings in
-            settings.onDownAction = .gracefulShutdown(delay: .seconds(0))
-            settings.autoLeaderElection = .lowestReachable(minNumberOfMembers: 2)
-
-            settings.downingStrategy = self.downingStrategy
-        }
-    }
-
-    // ==== ----------------------------------------------------------------------------------------------------------------
-    // MARK: Stop by: otherSystem.cluster.down(theNode)
-
-    func test_stopLeader_by_shutdownSelf_shouldPropagateToOtherNodes() async throws {
-        try await self.shared_stoppingNode_shouldPropagateToOtherNodesAsDown(stopMethod: .shutdownSelf, stopNode: .firstLeader) { settings in
-            settings.onDownAction = .gracefulShutdown(delay: .seconds(0))
-            settings.autoLeaderElection = .lowestReachable(minNumberOfMembers: 2)
-
-            settings.downingStrategy = self.downingStrategy
-        }
-    }
-
-    func test_stopMember_by_shutdownSelf_shouldPropagateToOtherNodes() async throws {
-        try await self.shared_stoppingNode_shouldPropagateToOtherNodesAsDown(stopMethod: .shutdownSelf, stopNode: .secondNonLeader) { settings in
-            settings.onDownAction = .gracefulShutdown(delay: .seconds(0))
-            settings.autoLeaderElection = .lowestReachable(minNumberOfMembers: 2)
-
-            settings.downingStrategy = self.downingStrategy
-        }
-    }
-
-    // ==== ----------------------------------------------------------------------------------------------------------------
+    // ==== --------------------------------------------------------------------------------------------------------
     // MARK: "Mass" Downing
 
-    func test_many_nonLeaders_shouldPropagateToOtherNodes() async throws {
+    internal func test_many_nonLeaders_shouldPropagateToOtherNodes() async throws {
         if Int.random(in: 10...100) > 0 {
-            throw XCTSkip("SKIPPING FLAKY TEST, REVISIT IT SOON")  // FIXME: https://github.com/apple/swift-distributed-actors/issues/712
+            throw XCTSkip(
+                "SKIPPING FLAKY TEST, REVISIT IT SOON"
+            )  // FIXME: https://github.com/apple/swift-distributed-actors/issues/712
         }
 
         var nodes: [ClusterSystem] = []
-        for i in (1...7) {
-            nodes[i] = await setUpNode("node-\(i)")
+        for index in (1...7) {
+            nodes[index] = await setUpNode("node-\(index)")
         }
-        let first = nodes.first!
+
+        let first: ClusterSystem = try XCTUnwrap(nodes.first)
 
         var probes: [Cluster.Node: ActorTestProbe<Cluster.Event>] = [:]
         for remainingNode in nodes {
             probes[remainingNode.cluster.node] = await self.testKit(remainingNode).spawnClusterEventStreamTestProbe()
         }
 
-        pinfo("Joining \(nodes.count) nodes...")
-        let joiningStart = ContinuousClock.Instant.now
+        pinfo("Joining \(nodes.count) nodes...", file: #fileID, line: #line)
+        let joiningStart: ContinuousClock.Instant = ContinuousClock.Instant.now
 
         for node in nodes { first.cluster.join(endpoint: node.cluster.node.endpoint) }
-        try await self.ensureNodes(.up, within: .seconds(30), nodes: nodes.map(\.cluster.node))
+        try await self.ensureNodes(.operational, nodes: nodes.map(\.cluster.node), within: .seconds(30))
 
-        let joiningStop = ContinuousClock.Instant.now
-        pinfo("Joined \(nodes.count) nodes, took: \((joiningStop - joiningStart).prettyDescription)")
+        let joiningStop: ContinuousClock.Instant = ContinuousClock.Instant.now
+        pinfo(
+            "Joined \(nodes.count) nodes, took: \((joiningStop - joiningStart).prettyDescription)",
+            file: #fileID,
+            line: #line
+        )
 
-        let nodesToDown = nodes.prefix(nodes.count / 2)
-        var remainingNodes = nodes
+        let nodesToDown: ArraySlice<ClusterSystem> = nodes.prefix(nodes.count / 2)
+        var remainingNodes: [ClusterSystem] = nodes
         remainingNodes.removeFirst(nodesToDown.count)
 
-        pinfo("Downing \(nodesToDown.count) nodes: \(nodesToDown.map(\.cluster.node))")
+        pinfo("Downing \(nodesToDown.count) nodes: \(nodesToDown.map(\.cluster.node))", file: #fileID, line: #line)
         for node in nodesToDown {
-            try! await node.shutdown().wait()
-        }
-
-        func expectedDownMemberEventsFishing(
-            on: ClusterSystem,
-            file: StaticString = #fileID,
-            line: UInt = #line
-        ) -> (Cluster.Event) -> ActorTestProbe<Cluster.Event>.FishingDirective<Cluster.MembershipChange> {
-            pinfo("Expecting \(nodesToDown.map(\.cluster.node.endpoint)) to become [.down] on [\(on.cluster.node.endpoint)]")
-            var removalsFound = 0
-
-            return { event in
-                switch event {
-                case .membershipChange(let change) where change.isRemoval:
-                    pinfo("\(on.cluster.node.endpoint): \(change)", file: file, line: line)
-                    removalsFound += 1
-                    if removalsFound == nodesToDown.count {
-                        return .catchComplete(change)
-                    } else {
-                        return .catchContinue(change)
-                    }
-                case .membershipChange(let change) where change.isDown:
-                    pinfo("\(on.cluster.node.endpoint): \(change)", file: file, line: line)
-                    return .catchContinue(change)
-                default:
-                    return .ignore
-                }
-            }
+            try await node.shutdown().wait()
         }
 
         for remainingNode in remainingNodes {
-            let probe = probes[remainingNode.cluster.node]!
-            let events = try probe.fishFor(Cluster.MembershipChange.self, within: .seconds(60), expectedDownMemberEventsFishing(on: remainingNode))
+            let probe: ActorTestProbe<Cluster.Event> = try XCTUnwrap(probes[remainingNode.cluster.node])
+            let events: [Cluster.MembershipChange] =
+                try probe.fishFor(
+                    Cluster.MembershipChange.self,
+                    within: .seconds(60),
+                    expectedDownMemberEventsFishing(for: nodesToDown, on: remainingNode)
+                )
 
-            events.shouldContain(where: { change in change.status.isDown && (change.previousStatus == .joining || change.previousStatus == .up) })
-            for expectedDownNode in nodesToDown {
-                events.shouldContain(Cluster.MembershipChange(node: expectedDownNode.cluster.node, previousStatus: .down, toStatus: .removed))
+            self.assertDownAndRemovalEvents(events, for: nodesToDown)
+        }
+    }
+
+    private func assertDownAndRemovalEvents(
+        _ events: [Cluster.MembershipChange],
+        for nodesToDown: ArraySlice<ClusterSystem>
+    ) {
+        events.shouldContain { change in
+            change.status.isDown
+                && (change.previousStatus == .joining || change.previousStatus == .operational)
+        }
+        for expectedDownNode in nodesToDown {
+            events.shouldContain(
+                Cluster.MembershipChange(
+                    node: expectedDownNode.cluster.node,
+                    previousStatus: .down,
+                    toStatus: .removed
+                )
+            )
+        }
+    }
+
+    private func expectedDownMemberEventsFishing(
+        for nodesToDown: ArraySlice<ClusterSystem>,
+        on observedSystem: ClusterSystem,
+        file: StaticString = #fileID,
+        line: UInt = #line
+    ) -> (Cluster.Event) -> ActorTestProbe<Cluster.Event>.FishingDirective<Cluster.MembershipChange> {
+        pinfo(
+            """
+            Expecting \(nodesToDown.map(\.cluster.node.endpoint)) to become [.down] on \
+            [\(observedSystem.cluster.node.endpoint)]
+            """,
+            file: #fileID,
+            line: #line
+        )
+        var removalsFound: Int = 0
+
+        return { event in
+            switch event {
+            case .membershipChange(let change) where change.isRemoval:
+                pinfo("\(observedSystem.cluster.node.endpoint): \(change)", file: file, line: line)
+                removalsFound += 1
+                if removalsFound == nodesToDown.count {
+                    return .catchComplete(change)
+                }
+                return .catchContinue(change)
+
+            case .membershipChange(let change) where change.isDown:
+                pinfo("\(observedSystem.cluster.node.endpoint): \(change)", file: file, line: line)
+                return .catchContinue(change)
+
+            default:
+                return .ignore
+            }
+        }
+    }
+
+    private func expectedDownMemberEventsFishing(
+        expectedDownSystem: ClusterSystem,
+        expectedDownNode: Cluster.Node,
+        stopMethod: NodeStopMethod,
+        on observedSystem: ClusterSystem,
+        file: StaticString = #fileID,
+        line: UInt = #line
+    ) -> (Cluster.Event) -> ActorTestProbe<Cluster.Event>.FishingDirective<Cluster.MembershipChange> {
+        pinfo(
+            """
+            Expecting [\(expectedDownSystem)] to become [.down] on [\(observedSystem.cluster.node.endpoint)], method \
+            to stop the node [\(stopMethod)]
+            """,
+            file: #fileID,
+            line: #line
+        )
+
+        return { event in
+            switch event {
+            case .membershipChange(let change) where change.node == expectedDownNode && change.isRemoval:
+                pinfo("\(observedSystem.cluster.node.endpoint): \(change)", file: (file), line: line)
+                return .catchComplete(change)
+
+            case .membershipChange(let change) where change.node == expectedDownNode:
+                pinfo("\(observedSystem.cluster.node.endpoint): \(change)", file: (file), line: line)
+                return .catchContinue(change)
+
+            case .reachabilityChange(let change) where change.member.node == expectedDownNode:
+                pnote("\(observedSystem.cluster.node.endpoint): \(change)", file: (file), line: line)
+                return .ignore
+
+            default:
+                pnote("\(observedSystem.cluster.node.endpoint): \(event)", file: (file), line: line)
+                return .ignore
             }
         }
     }

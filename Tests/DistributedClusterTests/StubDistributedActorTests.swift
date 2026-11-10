@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Dispatch
 import DistributedActorsTestKit
@@ -20,11 +20,11 @@ import XCTest
 
 @testable import DistributedCluster
 
-final class StubDistributedActorTests: SingleClusterSystemXCTestCase {
-    func test_StubDistributedActor_shouldAlwaysResolveAsRemote() {
-        let anyID = system.assignID(StubDistributedActor.self)
+internal final class StubDistributedActorTests: SingleClusterSystemXCTestCase {
+    internal func test_StubDistributedActor_shouldAlwaysResolveAsRemote() {
+        let anyID: ActorID = system.assignID(StubDistributedActor.self)
 
-        let resolved = system._resolveStub(id: anyID)
+        let resolved: StubDistributedActor = system.resolveStub(id: anyID)
         __isRemoteActor(resolved).shouldBeTrue()
     }
 }

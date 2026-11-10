@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Dispatch
 import Distributed
@@ -37,7 +37,11 @@ public protocol LifecycleWatch: DistributedActor where ActorSystem == ClusterSys
 
 extension LifecycleWatch {
     /// Watch the `watchee` actor for termination, and trigger the `whenTerminated` callback when
-    @available(*, deprecated, message: "Replaced with the much safer `watchTermination(of:)` paired with `actorTerminated(_:)`")
+    @available(
+        *,
+        deprecated,
+        message: "Replaced with the much safer `watchTermination(of:)` paired with `actorTerminated(_:)`"
+    )
     public func watchTermination<Watchee>(
         of watchee: Watchee,
         @_inheritActorContext whenTerminated: @escaping @Sendable (ID) async -> Void,
@@ -54,9 +58,11 @@ extension LifecycleWatch {
 
     /// Watch the `watchee` actor for termination.
     ///
-    /// As result of watching a distributed actor, the ``terminated(actor:)`` method is invoked when the actor terminates.
+    /// As result of watching a distributed actor, the ``terminated(actor:)`` method is invoked when the actor
+    /// terminates.
     /// That method gets only the actors `ID` passed, as passing the reference would mean keeping the actor alive,
-    /// which is counter to the purpose of this API: notifying when a distributed actor has terminated (i.e. deinitialized,
+    /// which is counter to the purpose of this API: notifying when a distributed actor has terminated (i.e.
+    /// deinitialized,
     /// or a member it was hosted on was determined ``Cluster/MemberStatus/down``).
     ///
     /// - Parameters:
@@ -97,7 +103,9 @@ extension LifecycleWatch {
     /// actor takes immediate effect.
     ///
     /// - Returns: the passed in watchee reference for easy chaining `e.g. return context.unwatch(ref)`
-    public func isWatching<Watchee>(_ watchee: Watchee) -> Bool where Watchee: DistributedActor, Watchee.ActorSystem == ClusterSystem {
+    public func isWatching<Watchee>(
+        _ watchee: Watchee
+    ) -> Bool where Watchee: DistributedActor, Watchee.ActorSystem == ClusterSystem {
         guard let watch = self.context.lifecycle else {
             return false
         }
@@ -126,6 +134,7 @@ extension LifecycleWatch {
         self.unwatchTermination(of: watchee, file: file, line: line)
     }
 
+    /// Stops observing termination of the given actor and returns the actor reference.
     @discardableResult
     public func unwatchTermination<Watchee: DistributedActor>(
         of watchee: Watchee,
@@ -145,7 +154,7 @@ extension LifecycleWatch {
 
 extension LifecycleWatch {
     /// Function invoked by the actor transport when a distributed termination is detected.
-    public func _receiveActorTerminated(id: ID) async {
+    public func receiveActorTerminated(id: ID) {
         self.context.lifecycle?.receiveTerminated(id)
     }
 }

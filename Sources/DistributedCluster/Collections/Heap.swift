@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,9 +10,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the SwiftNIO open source project
 //
@@ -24,9 +24,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
-// Based on https://raw.githubusercontent.com/apple/swift-nio/bf2598d19359e43b4cfaffaff250986ebe677721/Sources/NIO/Heap.swift
+// Based on SwiftNIO's Heap at revision bf2598d19359e43b4cfaffaff250986ebe677721.
 
 // Modified by Soenan for musl platform support.
 #if canImport(Darwin)
@@ -37,48 +37,104 @@ import Glibc
 import Musl
 #endif
 
-internal enum HeapType {
-    case maxHeap
-    case minHeap
+// Slightly modified version of NIO's Heap. upstream changes
+internal struct Heap<T: Equatable>: CustomDebugStringConvertible, Sequence {
+    internal typealias Element = T
 
-    public func comparator<T: Comparable>(type: T.Type) -> (T, T) -> Bool {
-        switch self {
-        case .maxHeap:
-            return (>)
-        case .minHeap:
-            return (<)
-        }
-    }
-}
-
-// Slightly modified version of NIO's Heap. TODO: upstream changes
-internal struct Heap<T: Equatable> {
     internal private(set) var storage: ContiguousArray<T> = []
     private let comparator: (T, T) -> Bool
+    internal var debugDescription: String {
+        guard !self.storage.isEmpty else {
+            return "<empty heap>"
+        }
 
-    init(of type: T.Type, comparator: @escaping (T, T) -> Bool) {
+        let descriptions: [String] = self.storage.map { String(describing: $0) }
+        let maxLen: Int = descriptions.reduce(0) { Swift.max($0, $1.count) }
+        let paddedDescs: [String] = descriptions.map { (description: String) -> String in
+            var desc: String = description
+            while desc.count < maxLen {
+                if desc.count.isMultiple(of: 2) {
+                    desc = " \(desc)"
+                } else {
+                    desc = "\(desc) "
+                }
+            }
+            return desc
+        }
+
+        var all: String = "\n"
+        let spacing: String = String(repeating: " ", count: maxLen)
+        func subtreeWidths(rootIndex: Int) -> (Int, Int) {
+            let lcIdx: Int = self.leftIndex(rootIndex)
+            let rcIdx: Int = self.rightIndex(rootIndex)
+            var leftSpace: Int = 0
+            var rightSpace: Int = 0
+            if lcIdx < self.storage.count {
+                let sws: (Int, Int) = subtreeWidths(rootIndex: lcIdx)
+                leftSpace += sws.0 + sws.1 + maxLen
+            }
+            if rcIdx < self.storage.count {
+                let sws: (Int, Int) = subtreeWidths(rootIndex: rcIdx)
+                rightSpace += sws.0 + sws.1 + maxLen
+            }
+            return (leftSpace, rightSpace)
+        }
+        for (index, desc) in paddedDescs.enumerated() {
+            let (leftWidth, rightWidth): (Int, Int) = subtreeWidths(rootIndex: index)
+            all += String(repeating: " ", count: leftWidth)
+            all += desc
+            all += String(repeating: " ", count: rightWidth)
+
+            func height(index: Int) -> Int {
+                Int(log2(Double(index + 1)))
+            }
+
+            let myHeight: Int = height(index: index)
+            let nextHeight: Int = height(index: index + 1)
+            if myHeight != nextHeight {
+                all += "\n"
+            } else {
+                all += spacing
+            }
+        }
+        all += "\n"
+        return all
+    }
+
+    internal var startIndex: Int { self.storage.startIndex }
+    internal var endIndex: Int { self.storage.endIndex }
+
+    internal var underestimatedCount: Int {
+        self.storage.count
+    }
+
+    internal var count: Int {
+        self.storage.count
+    }
+
+    internal init(of _: T.Type, comparator: @escaping (T, T) -> Bool) {
         self.comparator = comparator
     }
 
     // named `PARENT` in CLRS
-    private func parentIndex(_ i: Int) -> Int {
-        (i - 1) / 2
+    private func parentIndex(_ index: Int) -> Int {
+        (index - 1) / 2
     }
 
     // named `LEFT` in CLRS
-    private func leftIndex(_ i: Int) -> Int {
-        2 * i + 1
+    private func leftIndex(_ index: Int) -> Int {
+        2 * index + 1
     }
 
     // named `RIGHT` in CLRS
-    private func rightIndex(_ i: Int) -> Int {
-        2 * i + 2
+    private func rightIndex(_ index: Int) -> Int {
+        2 * index + 2
     }
 
     // named `MAX-HEAPIFY` in CLRS
     private mutating func heapify(_ index: Int) {
-        let left = self.leftIndex(index)
-        let right = self.rightIndex(index)
+        let left: Int = self.leftIndex(index)
+        let right: Int = self.rightIndex(index)
 
         var root: Int
         if left <= (self.storage.count - 1), self.comparator(self.storage[left], self.storage[index]) {
@@ -98,8 +154,8 @@ internal struct Heap<T: Equatable> {
     }
 
     // named `HEAP-INCREASE-KEY` in CRLS
-    private mutating func heapRootify(index: Int, key: T) {
-        var index = index
+    private mutating func heapRootify(index startingIndex: Int, key: T) {
+        var index: Int = startingIndex
         if self.comparator(self.storage[index], key) {
             fatalError("New key must be closer to the root than current key")
         }
@@ -111,50 +167,48 @@ internal struct Heap<T: Equatable> {
         }
     }
 
-    public mutating func append(_ value: T) {
-        var i = self.storage.count
+    internal mutating func append(_ value: T) {
+        var index: Int = self.storage.count
         self.storage.append(value)
-        while i > 0, self.comparator(self.storage[i], self.storage[self.parentIndex(i)]) {
-            self.storage.swapAt(i, self.parentIndex(i))
-            i = self.parentIndex(i)
+        while index > 0, self.comparator(self.storage[index], self.storage[self.parentIndex(index)]) {
+            self.storage.swapAt(index, self.parentIndex(index))
+            index = self.parentIndex(index)
         }
     }
 
     @discardableResult
-    public mutating func removeRoot() -> T? {
+    internal mutating func removeRoot() -> T? {
         self.remove(index: 0)
     }
 
     @discardableResult
-    public mutating func remove(value: T) -> Bool {
+    internal mutating func remove(value: T) -> Bool {
         if let idx = self.storage.firstIndex(of: value) {
             self.remove(index: idx)
             return true
-        } else {
-            return false
         }
+        return false
     }
 
     @discardableResult
-    public mutating func remove(where: (T) throws -> Bool) rethrows -> Bool {
+    internal mutating func remove(where: (T) throws -> Bool) rethrows -> Bool {
         if let idx = try self.storage.firstIndex(where: `where`) {
             self.remove(index: idx)
             return true
-        } else {
-            return false
         }
+        return false
     }
 
     @discardableResult
     private mutating func remove(index: Int) -> T? {
-        guard self.storage.count > 0 else {
+        guard !self.storage.isEmpty else {
             return nil
         }
-        let element = self.storage[index]
-        let comparator = self.comparator
+
+        let element: T = self.storage[index]
         if self.storage.count == 1 || self.storage[index] == self.storage[self.storage.count - 1] {
             self.storage.removeLast()
-        } else if !comparator(self.storage[index], self.storage[self.storage.count - 1]) {
+        } else if !self.comparator(self.storage[index], self.storage[self.storage.count - 1]) {
             self.heapRootify(index: index, key: self.storage[self.storage.count - 1])
             self.storage.removeLast()
         } else {
@@ -167,131 +221,45 @@ internal struct Heap<T: Equatable> {
 
     internal func checkHeapProperty() -> Bool {
         func checkHeapProperty(index: Int) -> Bool {
-            let li = self.leftIndex(index)
-            let ri = self.rightIndex(index)
+            let leftIndex: Int = self.leftIndex(index)
+            let rightIndex: Int = self.rightIndex(index)
             if index >= self.storage.count {
                 return true
-            } else {
-                let me = self.storage[index]
-                var lCond = true
-                var rCond = true
-                if li < self.storage.count {
-                    let l = self.storage[li]
-                    lCond = !self.comparator(l, me)
-                }
-                if ri < self.storage.count {
-                    let r = self.storage[ri]
-                    rCond = !self.comparator(r, me)
-                }
-                return lCond && rCond && checkHeapProperty(index: li) && checkHeapProperty(index: ri)
             }
+
+            let element: T = self.storage[index]
+            var leftCondition: Bool = true
+            var rightCondition: Bool = true
+            if leftIndex < self.storage.count {
+                let left: T = self.storage[leftIndex]
+                leftCondition = !self.comparator(left, element)
+            }
+            if rightIndex < self.storage.count {
+                let right: T = self.storage[rightIndex]
+                rightCondition = !self.comparator(right, element)
+            }
+            return leftCondition && rightCondition
+                && checkHeapProperty(index: leftIndex) && checkHeapProperty(index: rightIndex)
         }
         return checkHeapProperty(index: 0)
     }
-}
 
-extension Heap: CustomDebugStringConvertible {
-    var debugDescription: String {
-        guard self.storage.count > 0 else {
-            return "<empty heap>"
-        }
-        let descriptions = self.storage.map { String(describing: $0) }
-        let maxLen: Int = descriptions.map(\.count).max()!  // storage checked non-empty above
-        let paddedDescs = descriptions.map { (desc: String) -> String in
-            var desc = desc
-            while desc.count < maxLen {
-                if desc.count % 2 == 0 {
-                    desc = " \(desc)"
-                } else {
-                    desc = "\(desc) "
-                }
-            }
-            return desc
-        }
-
-        var all = "\n"
-        let spacing = String(repeating: " ", count: maxLen)
-        func subtreeWidths(rootIndex: Int) -> (Int, Int) {
-            let lcIdx = self.leftIndex(rootIndex)
-            let rcIdx = self.rightIndex(rootIndex)
-            var leftSpace = 0
-            var rightSpace = 0
-            if lcIdx < self.storage.count {
-                let sws = subtreeWidths(rootIndex: lcIdx)
-                leftSpace += sws.0 + sws.1 + maxLen
-            }
-            if rcIdx < self.storage.count {
-                let sws = subtreeWidths(rootIndex: rcIdx)
-                rightSpace += sws.0 + sws.1 + maxLen
-            }
-            return (leftSpace, rightSpace)
-        }
-        for (index, desc) in paddedDescs.enumerated() {
-            let (leftWidth, rightWidth) = subtreeWidths(rootIndex: index)
-            all += String(repeating: " ", count: leftWidth)
-            all += desc
-            all += String(repeating: " ", count: rightWidth)
-
-            func height(index: Int) -> Int {
-                Int(log2(Double(index + 1)))
-            }
-            let myHeight = height(index: index)
-            let nextHeight = height(index: index + 1)
-            if myHeight != nextHeight {
-                all += "\n"
-            } else {
-                all += spacing
-            }
-        }
-        all += "\n"
-        return all
-    }
-}
-
-struct HeapIterator<T: Equatable>: IteratorProtocol {
-    typealias Element = T
-
-    private var heap: Heap<T>
-
-    init(heap: Heap<T>) {
-        self.heap = heap
-    }
-
-    mutating func next() -> T? {
-        self.heap.removeRoot()
-    }
-}
-
-extension Heap: Sequence {
-    typealias Element = T
-
-    var startIndex: Int { self.storage.startIndex }
-    var endIndex: Int { self.storage.endIndex }
-
-    var underestimatedCount: Int {
-        self.storage.count
-    }
-
-    func makeIterator() -> HeapIterator<T> {
+    internal func makeIterator() -> HeapIterator<T> {
         HeapIterator(heap: self)
     }
 
-    subscript(position: Int) -> T {
+    internal func index(after index: Int) -> Int {
+        index + 1
+    }
+
+    internal subscript(position: Int) -> T {
         self.storage[position]
     }
 
-    func index(after i: Int) -> Int {
-        i + 1
-    }
-
-    // TODO: document if cheap (AFAICS yes)
-    var count: Int {
-        self.storage.count
-    }
 }
 
 extension Heap where T: Comparable {
-    init?(type: HeapType, storage: ContiguousArray<T>) {
+    internal init?(type: HeapType, storage: ContiguousArray<T>) {
         self.comparator = type.comparator(type: T.self)
         self.storage = storage
         if !self.checkHeapProperty() {
@@ -299,7 +267,7 @@ extension Heap where T: Comparable {
         }
     }
 
-    init(type: HeapType) {
+    internal init(type: HeapType) {
         self.comparator = type.comparator(type: T.self)
     }
 }

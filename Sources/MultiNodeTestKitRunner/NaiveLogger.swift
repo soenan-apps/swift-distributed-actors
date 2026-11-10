@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,10 +10,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import struct Foundation.Date
 
-func log(_ log: String, file: String = #fileID, line: UInt = #line) {
+internal func log(_ log: String) {
     print("[multi-node] \(log)")
 }

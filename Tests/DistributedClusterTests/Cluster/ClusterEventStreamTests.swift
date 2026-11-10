@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import Logging
@@ -19,15 +19,28 @@ import XCTest
 
 @testable import DistributedCluster
 
-final class ClusterEventStreamTests: SingleClusterSystemXCTestCase, @unchecked Sendable {
-    let memberA = Cluster.Member(node: Cluster.Node(endpoint: Cluster.Endpoint(systemName: "System", host: "1.1.1.1", port: 7337), nid: .random()), status: .up)
-    let memberB = Cluster.Member(node: Cluster.Node(endpoint: Cluster.Endpoint(systemName: "System", host: "2.2.2.2", port: 8228), nid: .random()), status: .up)
+internal final class ClusterEventStreamTests: SingleClusterSystemXCTestCase, @unchecked Sendable {
+    internal let memberA: Cluster.Member =
+        Cluster.Member(
+            node: Cluster.Node(
+                endpoint: Cluster.Endpoint(systemName: "System", host: "1.1.1.1", port: 7_337),
+                nid: .random()
+            ),
+            status: .operational
+        )
+    internal let memberB: Cluster.Member =
+        Cluster.Member(
+            node: Cluster.Node(
+                endpoint: Cluster.Endpoint(systemName: "System", host: "2.2.2.2", port: 8_228),
+                nid: .random()
+            ),
+            status: .operational
+        )
 
-    func test_clusterEventStream_shouldNotCauseDeadLettersOnLocalOnlySystem() throws {
-        _ = try self.system._spawn(
+    internal func test_clusterEventStream_shouldNotCauseDeadLettersOnLocalOnlySystem() throws {
+        _ = try self.system.spawn(
             "anything",
-            of: String.self,
-            .setup { context in
+            Behavior<String>.setup { context in
                 context.log.info("Hello there!")
                 return .stop
             }
@@ -37,96 +50,102 @@ final class ClusterEventStreamTests: SingleClusterSystemXCTestCase, @unchecked S
         self.logCapture.grep("Dead letter").shouldBeEmpty()
     }
 
-    func test_clusterEventStream_shouldCollapseEventsAndOfferASnapshotToLateSubscribers() async throws {
-        let p1 = self.testKit.makeTestProbe(expecting: Cluster.Event.self)
-        let p2 = self.testKit.makeTestProbe(expecting: Cluster.Event.self)
+    internal func test_clusterEventStream_shouldCollapseEventsAndOfferASnapshotToLateSubscribers() async throws {
+        let firstProbe: ActorTestProbe<Cluster.Event> = self.testKit.makeTestProbe(expecting: Cluster.Event.self)
+        let secondProbe: ActorTestProbe<Cluster.Event> = self.testKit.makeTestProbe(expecting: Cluster.Event.self)
 
-        let eventStream = ClusterEventStream(system, customName: "testClusterEvents")
+        let eventStream: ClusterEventStream = ClusterEventStream(system, customName: "testClusterEvents")
 
-        await eventStream._subscribe(p1.ref)  // sub before first -> up was published
-        await eventStream.publish(.membershipChange(.init(member: self.memberA, toStatus: .up)))
-        await eventStream._subscribe(p2.ref)
-        await eventStream.publish(.membershipChange(.init(member: self.memberB, toStatus: .up)))
+        await eventStream.subscribeAndWait(firstProbe.ref)  // sub before first -> up was published
+        await eventStream.publish(.membershipChange(.init(member: self.memberA, toStatus: .operational)))
+        await eventStream.subscribeAndWait(secondProbe.ref)
+        await eventStream.publish(.membershipChange(.init(member: self.memberB, toStatus: .operational)))
 
         // ==== p1 ---------------------
 
-        switch try p1.expectMessage() {
+        switch try firstProbe.expectMessage() {
         case .snapshot(.empty):
             ()  // ok
+
         default:
-            throw p1.error("Expected a snapshot first")
+            throw firstProbe.error("Expected a snapshot first")
         }
-        switch try p1.expectMessage() {
+        switch try firstProbe.expectMessage() {
         case .membershipChange(let change):
             change.node.shouldEqual(self.memberA.node)
+
         default:
-            throw p1.error("Expected a membershipChange")
+            throw firstProbe.error("Expected a membershipChange")
         }
-        switch try p1.expectMessage() {
+        switch try firstProbe.expectMessage() {
         case .membershipChange(let change):
             change.node.shouldEqual(self.memberB.node)
+
         default:
-            throw p1.error("Expected a membershipChange")
+            throw firstProbe.error("Expected a membershipChange")
         }
 
         // ==== p2 ---------------------
 
-        switch try p2.expectMessage() {
+        switch try secondProbe.expectMessage() {
         case .snapshot(let snapshot):
             snapshot.member(self.memberA.node).shouldEqual(self.memberA)
             ()  // ok
+
         default:
-            throw p2.error("Expected a snapshot first")
+            throw secondProbe.error("Expected a snapshot first")
         }
-        switch try p2.expectMessage() {
+        switch try secondProbe.expectMessage() {
         case .membershipChange(let change):
             change.node.shouldEqual(self.memberB.node)
+
         default:
-            throw p2.error("Expected a membershipChange")
+            throw secondProbe.error("Expected a membershipChange")
         }
     }
 
-    func test_clusterEventStream_collapseManyEventsIntoSnapshot() async throws {
-        let p1 = self.testKit.makeTestProbe(expecting: Cluster.Event.self)
+    internal func test_clusterEventStream_collapseManyEventsIntoSnapshot() async throws {
+        let firstProbe: ActorTestProbe<Cluster.Event> = self.testKit.makeTestProbe(expecting: Cluster.Event.self)
 
-        let eventStream = ClusterEventStream(system, customName: "testClusterEvents")
+        let eventStream: ClusterEventStream = ClusterEventStream(system, customName: "testClusterEvents")
 
         await eventStream.publish(.membershipChange(.init(member: self.memberA, toStatus: .joining)))
-        await eventStream.publish(.membershipChange(.init(member: self.memberA, toStatus: .up)))
+        await eventStream.publish(.membershipChange(.init(member: self.memberA, toStatus: .operational)))
         await eventStream.publish(.membershipChange(.init(member: self.memberB, toStatus: .joining)))
-        await eventStream.publish(.membershipChange(.init(member: self.memberB, toStatus: .up)))
-        await eventStream._subscribe(p1.ref)
+        await eventStream.publish(.membershipChange(.init(member: self.memberB, toStatus: .operational)))
+        await eventStream.subscribeAndWait(firstProbe.ref)
 
         // ==== p1 ---------------------
 
-        switch try p1.expectMessage() {
+        switch try firstProbe.expectMessage() {
         case .snapshot(let snapshot):
-            let members = snapshot.members(atLeast: .joining)
+            let members: [Cluster.Member] = snapshot.members(atLeast: .joining)
             Set(members).shouldEqual(Set([self.memberA, self.memberB]))
 
         default:
-            throw p1.error("Expected a snapshot with all the data")
+            throw firstProbe.error("Expected a snapshot with all the data")
         }
 
-        try p1.expectNoMessage(for: .milliseconds(100))
+        try firstProbe.expectNoMessage(for: .milliseconds(100))
     }
 
-    func test_clusterEventStream_collapseManyEventsIntoSnapshot_async() async throws {
-        let eventStream = ClusterEventStream(system, customName: "testClusterEvents")
+    internal func test_clusterEventStream_collapseManyEventsIntoSnapshot_async() async {
+        let eventStream: ClusterEventStream = ClusterEventStream(system, customName: "testClusterEvents")
 
         // Publish events to change membership
         await eventStream.publish(.membershipChange(.init(member: self.memberA, toStatus: .joining)))
-        await eventStream.publish(.membershipChange(.init(member: self.memberA, toStatus: .up)))
+        await eventStream.publish(.membershipChange(.init(member: self.memberA, toStatus: .operational)))
         await eventStream.publish(.membershipChange(.init(member: self.memberB, toStatus: .joining)))
-        await eventStream.publish(.membershipChange(.init(member: self.memberB, toStatus: .up)))
+        await eventStream.publish(.membershipChange(.init(member: self.memberB, toStatus: .operational)))
 
         // .snapshot is sent on subscribe
         for await event in eventStream {
             switch event {
             case .snapshot(let snapshot):
-                let members = snapshot.members(atLeast: .joining)
+                let members: [Cluster.Member] = snapshot.members(atLeast: .joining)
                 Set(members).shouldEqual(Set([self.memberA, self.memberB]))
                 return
+
             default:
                 return XCTFail("Expected a snapshot with all the data to be the first received event")
             }

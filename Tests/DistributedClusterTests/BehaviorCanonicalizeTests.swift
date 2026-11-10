@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import Foundation
@@ -18,135 +18,145 @@ import XCTest
 
 @testable import DistributedCluster
 
-final class BehaviorCanonicalizeTests: SingleClusterSystemXCTestCase {
-    func test_canonicalize_nestedSetupBehaviors() throws {
-        let p: ActorTestProbe<String> = self.testKit.makeTestProbe("canonicalizeProbe1")
+internal final class BehaviorCanonicalizeTests: SingleClusterSystemXCTestCase {
+    internal func test_canonicalize_nestedSetupBehaviors() throws {
+        let probeForTest: ActorTestProbe<String> = self.testKit.makeTestProbe("canonicalizeProbe1")
 
-        let b: _Behavior<String> = .setup { _ in
-            p.tell("outer-1")
+        let secondValue: Behavior<String> = .setup { _ in
+            probeForTest.tell("outer-1")
             return .setup { _ in
-                p.tell("inner-2")
+                probeForTest.tell("inner-2")
                 return .setup { _ in
-                    p.tell("inner-3")
-                    return .receiveMessage { m in
-                        p.tell("received:\(m)")
+                    probeForTest.tell("inner-3")
+                    return .receiveMessage { messageForTest in
+                        probeForTest.tell("received:\(messageForTest)")
                         return .same
                     }
                 }
             }
         }
 
-        let ref = try system._spawn("nestedSetups", b)
+        let ref: ActorRef<String> = try system.spawn("nestedSetups", secondValue)
 
-        try p.expectMessage("outer-1")
-        try p.expectMessage("inner-2")
-        try p.expectMessage("inner-3")
-        try p.expectNoMessage(for: .milliseconds(100))
+        try probeForTest.expectMessage("outer-1")
+        try probeForTest.expectMessage("inner-2")
+        try probeForTest.expectMessage("inner-3")
+        try probeForTest.expectNoMessage(for: .milliseconds(100))
         ref.tell("ping")
-        try p.expectMessage("received:ping")
+        try probeForTest.expectMessage("received:ping")
     }
 
-    func test_canonicalize_doesSurviveDeeplyNestedSetups() throws {
-        let p: ActorTestProbe<String> = self.testKit.makeTestProbe("canonicalizeProbe2")
+    internal func test_canonicalize_doesSurviveDeeplyNestedSetups() throws {
+        let probeForTest: ActorTestProbe<String> = self.testKit.makeTestProbe("canonicalizeProbe2")
 
-        func deepSetupRabbitHole(currentDepth depth: Int, stopAt limit: Int) -> _Behavior<String> {
+        func deepSetupRabbitHole(currentDepth depth: Int, stopAt limit: Int) -> Behavior<String> {
             .setup { _ in
                 if depth < limit {
                     // add another "setup layer"
                     return deepSetupRabbitHole(currentDepth: depth + 1, stopAt: limit)
-                } else {
-                    return .receiveMessage { msg in
-                        p.tell("received:\(msg)")
-                        return .stop
-                    }
+                }
+                return .receiveMessage { msg in
+                    probeForTest.tell("received:\(msg)")
+                    return .stop
                 }
             }
         }
 
         // we attempt to cause a stack overflow by nesting tons of setups inside each other.
         // this could fail if canonicalization were implemented in some naive way.
-        let depthLimit = self.system.settings.actor.maxBehaviorNestingDepth - 2  // not a good idea, but we should not crash
-        let ref = try system._spawn("deepSetupNestedRabbitHole", deepSetupRabbitHole(currentDepth: 0, stopAt: depthLimit))
+        let depthLimit: Int =
+            self.system.settings.actor.maxBehaviorNestingDepth - 2  // not a good idea, but we should not crash
+        let ref: ActorRef<String> = try system.spawn(
+            "deepSetupNestedRabbitHole",
+            deepSetupRabbitHole(
+                currentDepth: 0,
+                stopAt: depthLimit
+            )
+        )
 
         ref.tell("ping")
-        try p.expectMessage("received:ping")
+        try probeForTest.expectMessage("received:ping")
     }
 
-    func test_canonicalize_unwrapInterceptBehaviors() throws {
-        let p: ActorTestProbe<String> = self.testKit.makeTestProbe("canonicalizeProbe3")
+    internal func test_canonicalize_unwrapInterceptBehaviors() throws {
+        let probeForTest: ActorTestProbe<String> = self.testKit.makeTestProbe("canonicalizeProbe3")
 
-        let b: _Behavior<String> = .intercept(
+        let secondValue: Behavior<String> = .intercept(
             behavior: .setup { _ in
-                p.tell("outer-1")
+                probeForTest.tell("outer-1")
                 return .setup { _ in
-                    p.tell("inner-2")
-                    return .receiveMessage { m in
-                        p.tell("received:\(m)")
+                    probeForTest.tell("inner-2")
+                    return .receiveMessage { messageForTest in
+                        probeForTest.tell("received:\(messageForTest)")
                         return .same
                     }
                 }
             },
-            with: ProbeInterceptor(probe: p)
+            with: ProbeInterceptor(probe: probeForTest)
         )
 
-        let ref = try system._spawn("nestedSetups", b)
+        let ref: ActorRef<String> = try system.spawn("nestedSetups", secondValue)
 
-        try p.expectMessage("outer-1")
-        try p.expectMessage("inner-2")
-        try p.expectNoMessage(for: .milliseconds(100))
+        try probeForTest.expectMessage("outer-1")
+        try probeForTest.expectMessage("inner-2")
+        try probeForTest.expectNoMessage(for: .milliseconds(100))
         ref.tell("ping")
-        try p.expectMessage("ping")
-        try p.expectMessage("received:ping")
+        try probeForTest.expectMessage("ping")
+        try probeForTest.expectMessage("received:ping")
     }
 
-    func test_canonicalize_orElse_shouldThrowOnTooDeeplyNestedBehaviors() throws {
-        let p: ActorTestProbe<Int> = self.testKit.makeTestProbe()
-        var behavior: _Behavior<Int> = .receiveMessage { message in
-            p.tell(message)
+    internal func test_canonicalize_orElse_shouldThrowOnTooDeeplyNestedBehaviors() throws {
+        let probeForTest: ActorTestProbe<Int> = self.testKit.makeTestProbe()
+        var behavior: Behavior<Int> = .receiveMessage { message in
+            probeForTest.tell(message)
             return .same
         }
 
-        for i in (0...self.system.settings.actor.maxBehaviorNestingDepth).reversed() {
-            behavior = _Behavior<Int>.receiveMessage { message in
-                if message == i {
-                    p.tell(-i)
+        for index in (0...self.system.settings.actor.maxBehaviorNestingDepth).reversed() {
+            behavior = Behavior<Int>.receiveMessage { message in
+                if message == index {
+                    probeForTest.tell(-index)
                     return .same
-                } else {
-                    return .unhandled
                 }
+                return .unhandled
             }.orElse(behavior)
         }
 
-        let ref = try system._spawn(.anonymous, behavior)
-        p.watch(ref)
-        try p.expectTerminated(ref)
+        let ref: ActorRef<Int> = try system.spawn(.anonymous, behavior)
+        probeForTest.watch(ref)
+        try probeForTest.expectTerminated(ref)
     }
 
-    func test_canonicalize_orElse_executeNestedSetupOnBecome() throws {
-        let p: ActorTestProbe<String> = self.testKit.makeTestProbe()
+    internal func test_canonicalize_orElse_executeNestedSetupOnBecome() throws {
+        let probeForTest: ActorTestProbe<String> = self.testKit.makeTestProbe()
 
-        let ref: _ActorRef<String> = try system._spawn(
+        let ref: ActorRef<String> = try system.spawn(
             "orElseCanonicalizeNestedSetups",
-            .receiveMessage { msg in
-                let onlyA = _Behavior<String>.setup { _ in
-                    p.ref.tell("setup:onlyA")
+
+            .receiveMessage { _ in
+                let onlyA: Behavior<String> = Behavior<String>.setup { _ in
+                    probeForTest.ref.tell("setup:onlyA")
                     return .receiveMessage { msg in
                         switch msg {
                         case "A":
-                            p.ref.tell("got:A")
+                            probeForTest.ref.tell("got:A")
                             return .same
-                        default: return .unhandled
+
+                        default:
+                            return .unhandled
                         }
                     }
                 }
-                let onlyB = _Behavior<String>.setup { _ in
-                    p.ref.tell("setup:onlyB")
+                let onlyB: Behavior<String> = Behavior<String>.setup { _ in
+                    probeForTest.ref.tell("setup:onlyB")
                     return .receiveMessage { msg in
                         switch msg {
                         case "B":
-                            p.ref.tell("got:B")
+                            probeForTest.ref.tell("got:B")
                             return .same
-                        default: return .unhandled
+
+                        default:
+                            return .unhandled
                         }
                     }
                 }
@@ -156,86 +166,88 @@ final class BehaviorCanonicalizeTests: SingleClusterSystemXCTestCase {
 
         ref.tell("run the setups")
 
-        try p.expectMessage("setup:onlyA")
-        try p.expectMessage("setup:onlyB")
+        try probeForTest.expectMessage("setup:onlyA")
+        try probeForTest.expectMessage("setup:onlyB")
         ref.tell("A")
-        try p.expectMessage("got:A")
+        try probeForTest.expectMessage("got:A")
         ref.tell("B")
-        try p.expectMessage("got:B")
+        try probeForTest.expectMessage("got:B")
     }
 
-    func test_startBehavior_shouldThrowOnTooDeeplyNestedBehaviorSetups() throws {
-        let p: ActorTestProbe<String> = self.testKit.makeTestProbe("startBehaviorProbe")
+    internal func test_startBehavior_shouldThrowOnTooDeeplyNestedBehaviorSetups() throws {
+        let probeForTest: ActorTestProbe<String> = self.testKit.makeTestProbe("startBehaviorProbe")
 
-        /// Creates an infinitely nested setup behavior -- it is used to see that we detect this and abort executing eagerly
-        func setupDaDoRunRunRunDaDoRunRun(depth: Int = 0) -> _Behavior<String> {
+        // Creates an infinitely nested setup behavior -- it is used to see that we detect this and abort executing
+        // eagerly
+        func setupDaDoRunRunRunDaDoRunRun(depth: Int = 0) -> Behavior<String> {
             .setup { _ in
-                p.tell("at:\(depth)")
+                probeForTest.tell("at:\(depth)")
                 return setupDaDoRunRunRunDaDoRunRun(depth: depth + 1)
             }
         }
 
-        // TODO: if issue #244 is implemented, we cna supervise and "spy on" start() failures making this test much more specific
+        // if issue #244 is implemented, we cna supervise and "spy on" start() failures making this test much more
+        // specific
 
-        let behavior = setupDaDoRunRunRunDaDoRunRun()
-        try system._spawn("nestedSetups", behavior)
+        let behavior: Behavior<String> = setupDaDoRunRunRunDaDoRunRun()
+        try system.spawn("nestedSetups", behavior)
 
         for depth in 0..<self.system.settings.actor.maxBehaviorNestingDepth {
-            try p.expectMessage("at:\(depth)")
+            try probeForTest.expectMessage("at:\(depth)")
         }
-        try p.expectNoMessage(for: .milliseconds(50))
+        try probeForTest.expectNoMessage(for: .milliseconds(50))
     }
 
-    func test_stopWithoutPostStop_shouldUsePreviousBehavior() throws {
-        let p: ActorTestProbe<String> = self.testKit.makeTestProbe()
+    internal func test_stopWithoutPostStop_shouldUsePreviousBehavior() throws {
+        let probeForTest: ActorTestProbe<String> = self.testKit.makeTestProbe()
 
-        let behavior: _Behavior<String> = _Behavior.receiveMessage { _ in
+        let behavior: Behavior<String> = Behavior.receiveMessage { _ in
             .stop
         }.receiveSignal { _, signal in
-            if signal is _Signals._PostStop {
-                p.tell("postStop")
+            if signal is Signals.PostStop {
+                probeForTest.tell("postStop")
             }
             return .same
         }
 
-        let ref = try system._spawn(.anonymous, behavior)
-        p.watch(ref)
+        let ref: ActorRef<String> = try system.spawn(.anonymous, behavior)
+        probeForTest.watch(ref)
 
         ref.tell("test")
 
-        try p.expectMessage("postStop")
-        try p.expectTerminated(ref)
+        try probeForTest.expectMessage("postStop")
+        try probeForTest.expectTerminated(ref)
     }
 
-    func test_stopWithPostStop_shouldUseItForPostStopSignalHandling() throws {
-        let p: ActorTestProbe<String> = self.testKit.makeTestProbe()
+    internal func test_stopWithPostStop_shouldUseItForPostStopSignalHandling() throws {
+        let probeForTest: ActorTestProbe<String> = self.testKit.makeTestProbe()
 
-        let behavior: _Behavior<String> = _Behavior.receiveMessage { _ in
+        let behavior: Behavior<String> = Behavior.receiveMessage { _ in
             .stop { _ in
-                p.tell("postStop")
+                probeForTest.tell("postStop")
             }
         }
 
-        let ref = try system._spawn(.anonymous, behavior)
-        p.watch(ref)
+        let ref: ActorRef<String> = try system.spawn(.anonymous, behavior)
+        probeForTest.watch(ref)
 
         ref.tell("test")
 
-        try p.expectMessage("postStop")
-        try p.expectTerminated(ref)
+        try probeForTest.expectMessage("postStop")
+        try probeForTest.expectTerminated(ref)
     }
 
-    func test_setup_returningSameShouldThrow() throws {
-        let p: ActorTestProbe<String> = self.testKit.makeTestProbe()
+    internal func test_setup_returningSameShouldThrow() throws {
+        let probeForTest: ActorTestProbe<String> = self.testKit.makeTestProbe()
 
-        let behavior: _Behavior<String> = .setup { _ in
+        let behavior: Behavior<String> = .setup { _ in
             .same
         }
 
-        let ref = try system._spawn(.anonymous, behavior)
+        let ref: ActorRef<String> = try system.spawn(.anonymous, behavior)
 
-        p.watch(ref)
+        probeForTest.watch(ref)
 
-        try p.expectTerminated(ref)
+        try probeForTest.expectTerminated(ref)
     }
 }

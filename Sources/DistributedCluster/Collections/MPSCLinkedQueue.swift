@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,22 +10,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import CDistributedActorsMailbox
 import DistributedActorsConcurrencyHelpers
 
 @usableFromInline
-internal final class MPSCLinkedQueue<A> {
-    public let q: UnsafeMutablePointer<CSActMPSCLinkedQueue>
+internal final class MPSCLinkedQueue<Element> {
+    @usableFromInline internal let queue: UnsafeMutablePointer<CSActMPSCLinkedQueue>
 
-    public init() {
-        self.q = c_sact_mpsc_linked_queue_create()
-    }
-
-    deinit {
-        while dequeue() != nil {}
-        c_sact_mpsc_linked_queue_destroy(self.q)
+    internal init() {
+        self.queue = c_sact_mpsc_linked_queue_create()
     }
 
     /// Adds the given item to the end of the queue. This operation is atomic,
@@ -33,10 +28,10 @@ internal final class MPSCLinkedQueue<A> {
     ///
     /// - Parameter item: The item to be added to the queue
     @inlinable
-    public func enqueue(_ item: A) {
-        let ptr = UnsafeMutablePointer<A>.allocate(capacity: 1)
-        ptr.initialize(to: item)
-        c_sact_mpsc_linked_queue_enqueue(self.q, ptr)
+    internal func enqueue(_ item: Element) {
+        let pointer: UnsafeMutablePointer<Element> = .allocate(capacity: 1)
+        pointer.initialize(to: item)
+        c_sact_mpsc_linked_queue_enqueue(self.queue, pointer)
     }
 
     /// Removes the current head from the queue and returns it. This operation
@@ -48,15 +43,22 @@ internal final class MPSCLinkedQueue<A> {
     ///
     /// - Returns: The head of the queue if it is non-empty, `nil` otherwise.
     @inlinable
-    public func dequeue() -> A? {
-        if let p = c_sact_mpsc_linked_queue_dequeue(self.q) {
-            let ptr = p.assumingMemoryBound(to: A.self)
+    internal func dequeue() -> Element? {
+        if let rawPointer = c_sact_mpsc_linked_queue_dequeue(self.queue) {
+            let pointer: UnsafeMutablePointer<Element> = rawPointer.assumingMemoryBound(to: Element.self)
             defer {
-                ptr.deallocate()
+                pointer.deallocate()
             }
-            return ptr.move()
+            return pointer.move()
         }
 
         return nil
+    }
+
+    deinit {
+        while dequeue() != nil {
+            continue
+        }
+        c_sact_mpsc_linked_queue_destroy(self.queue)
     }
 }

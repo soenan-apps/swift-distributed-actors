@@ -3,18 +3,18 @@
 
 import PackageDescription
 
-var globalSwiftSettings: [SwiftSetting]
+internal var globalSwiftSettings: [SwiftSetting]
 
-var globalConcurrencyFlags: [String] = [
-    "-Xfrontend", "-disable-availability-checking",  // TODO(distributed): remove this flag
+internal var globalConcurrencyFlags: [String] = [
+    "-Xfrontend", "-disable-availability-checking"
 ]
 
 globalSwiftSettings = [
     SwiftSetting.unsafeFlags(globalConcurrencyFlags)
 ]
 
-var targets: [PackageDescription.Target] = [
-    // ==== ----------------------------------------------------------------------------------------------------------------
+internal var targets: [PackageDescription.Target] = [
+    // ==== Samples ====
     // MARK: Samples
 
     .executableTarget(
@@ -31,25 +31,16 @@ var targets: [PackageDescription.Target] = [
             .swiftLanguageMode(.v5)
         ]
     ),
-
-    // --- tests ---
-
-    // no-tests placeholder project to not have `swift test` fail on Samples/
-    .testTarget(
-        name: "NoopTests",
-        dependencies: [],
-        path: "Tests/NoopTests"
-    ),
 ]
 
-var dependencies: [Package.Dependency] = [
+internal var dependencies: [Package.Dependency] = [
     // ~~~~~~~     parent       ~~~~~~~
     .package(name: "swift-distributed-actors", path: "../")
 
     // ~~~~~~~ only for samples ~~~~~~~
 ]
 
-let package = Package(
+internal let kPackage: Package = Package(
     name: "swift-distributed-actors-samples",
     platforms: [
         // we require the 'distributed actor' language and runtime feature:
@@ -64,13 +55,13 @@ let package = Package(
         .executable(
             name: "SampleDiningPhilosophers",
             targets: ["SampleDiningPhilosophers"]
-        )
+        ),
     ],
 
     dependencies: dependencies,
 
     targets: targets.map { target in
-        var swiftSettings = target.swiftSettings ?? []
+        var swiftSettings: [SwiftSetting] = target.swiftSettings ?? []
         if target.type != .plugin {
             swiftSettings.append(contentsOf: globalSwiftSettings)
         }

@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Distributed
 import Logging
@@ -18,36 +18,44 @@ import Logging
 import struct Foundation.Data
 
 /// Representation of the distributed invocation in the Behavior APIs.
-/// This needs to be removed eventually as we remove behaviors.
 public struct InvocationMessage: Sendable, Codable, CustomStringConvertible {
-    let callID: ClusterSystem.CallID
-    let targetIdentifier: String
-    let genericSubstitutions: [String]
-    let arguments: [Data]
+    internal let callID: ClusterSystem.CallID
+    internal let targetIdentifier: String
+    internal let genericSubstitutions: [String]
+    internal let arguments: [Data]
 
-    var target: RemoteCallTarget {
+    internal var target: RemoteCallTarget {
         RemoteCallTarget(targetIdentifier)
     }
 
+    /// Describes the invocation target, substitutions, and argument count without printing argument data.
     public var description: String {
-        "InvocationMessage(callID: \(callID), target: \(target), genericSubstitutions: \(genericSubstitutions), arguments: \(arguments.count))"
+        "InvocationMessage(callID: \(callID), target: \(target), "
+            + "genericSubstitutions: \(genericSubstitutions), arguments: \(arguments.count))"
     }
 }
 
-// FIXME(distributed): remove [#957](https://github.com/apple/swift-distributed-actors/issues/957)
-enum InvocationBehavior {
-    static func behavior(instance weakInstance: WeakLocalRef<some DistributedActor>) -> _Behavior<InvocationMessage> {
-        _Behavior.setup { context in
-            ._receiveMessageAsync { (message) async throws -> _Behavior<InvocationMessage> in
-                guard let _ = weakInstance.actor else {
-                    context.log.warning("Received message \(message) while distributed actor instance was released! Stopping...")
-                    context.system.personalDeadLetters(type: InvocationMessage.self, recipient: context.id).tell(message)
+// Legacy behavior integration for distributed actor lifecycle signals.
+internal enum InvocationBehavior {
+    internal static func behavior(
+        instance weakInstance: WeakLocalRef<some DistributedActor>
+    ) -> Behavior<InvocationMessage> {
+        Behavior.setup { context in
+            .receiveMessageAsync { message async -> Behavior<InvocationMessage> in
+                guard weakInstance.actor != nil else {
+                    context.log.warning(
+                        "Received message \(message) while distributed actor instance was released! Stopping..."
+                    )
+                    context.system.personalDeadLetters(
+                        recipient: context.id, type: InvocationMessage.self
+                    ).tell(message)
                     return .stop
                 }
 
                 // `InvocationMessage`s are handled in `UserMessageHandler`
-                // old impl: await context.system.receiveInvocation(actor: instance, message: message)
-                return fatalErrorBacktrace("We don't invoke distributed actors via the behavior runtime anymore! ")
+                return fatalErrorBacktrace(
+                    "We don't invoke distributed actors via the behavior runtime anymore! ", file: #file, line: #line
+                )
             }.receiveSignal { _, signal in
 
                 // We received a signal, but our target actor instance was already released;
@@ -56,12 +64,11 @@ enum InvocationBehavior {
                     return .stop
                 }
 
-                if let terminated = signal as? _Signals.Terminated {
+                if let terminated = signal as? Signals.Terminated {
                     if let watcher = instance as? (any LifecycleWatch) {
                         Task {
-                            await watcher.whenLocal { __secretlyKnownToBeLocalK in
-                                let __secretlyKnownToBeLocal: any LifecycleWatch = __secretlyKnownToBeLocalK
-                                await __secretlyKnownToBeLocal._receiveActorTerminated(id: terminated.id)
+                            await watcher.whenLocal { localWatcher in
+                                localWatcher.receiveActorTerminated(id: terminated.id)
                             }
                         }
 

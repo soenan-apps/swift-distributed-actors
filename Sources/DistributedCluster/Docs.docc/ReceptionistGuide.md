@@ -62,7 +62,7 @@ The opposite of using a receptionist is obtaining a ``DistributedReceptionist/li
 Since keys are well typed, the obtained actors are also well typed, and this is how we can obtain a stream of workers which are checked in already, or are checking in with the receptionist as the stream continues:
 
 ```swift
-for await worker in await system.receptionist.listing(of: .workers) {
+for await worker in system.receptionist.listing(of: .workers) {
     try await worker.work() // message or store discovered workers
 }
 ```
@@ -85,7 +85,7 @@ distributed actor Boss: LifecycleWatch {
         }
 
         listingTask = Task {
-            for await worker in await actorSystem.receptionist.listing(of: .workers) {
+            for await worker in actorSystem.receptionist.listing(of: .workers) {
                 workers.insert(worker)
             }
         }

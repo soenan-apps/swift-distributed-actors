@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,125 +10,119 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Distributed
 
 // ==== ----------------------------------------------------------------------------------------------------------------
 // MARK: Cluster singleton plugin
 
-/// `ClusterSingletonPlugin` ensures that there is no more than one instance of a distributed actor running in the cluster.
+/// Keeps at most one distributed singleton instance active in the cluster.
 ///
 /// A singleton may run on any node in the cluster. Use `ClusterSingletonSettings.allocationStrategy` to control
-/// its allocation. On candidate nodes where the singleton might run, use `ClusterSystem.singleton.host(type:name:factory:)`
-/// to define the cluster singleton. Otherwise, call `ClusterSystem.singleton.proxy(type:name)` to obtain the singleton. The returned
+/// its allocation. Use `ClusterSystem.singleton.host(type:name:factory:)` on hosting nodes.
+/// Other nodes use `ClusterSystem.singleton.proxy(type:name)` to obtain a relocating proxy.
 /// `DistributedActor` is a proxy that can handle situations where the singleton might get relocated to different nodes.
 ///
 /// - Warning: Refer to the configured `AllocationStrategy` for trade-offs between safety and recovery latency for
 ///            the singleton allocation.
-/// - SeeAlso: The `ClusterSingleton` mechanism is conceptually similar to Erlang/OTP's <a href="http://erlang.org/doc/design_principles/distributed_applications.html">`DistributedApplication`</a>,
-///            and <a href="https://doc.akka.io/docs/akka/current/cluster-singleton.html">`ClusterSingleton` in Akka</a>.
-public actor ClusterSingletonPlugin {
+/// - SeeAlso: Erlang/OTP distributed applications and Akka cluster singletons.
+public actor ClusterSingletonPlugin: Plugin {
+    internal static let pluginKey: Key = "$clusterSingleton"
+
     private var singletons: [String: (proxyID: ActorID, boss: any ClusterSingletonBossProtocol)] = [:]
 
-    private var actorSystem: ClusterSystem!
+    private var actorSystem: ClusterSystem?
+
+    nonisolated public var key: Key { Self.pluginKey }
+
+    private var startedSystem: ClusterSystem {
+        guard let system = self.actorSystem else {
+            preconditionFailure("ClusterSingletonPlugin must be started before use")
+        }
+        return system
+    }
 
     public init() {
         self.actorSystem = nil  // 'actorSystem' is filled in later on in Plugin.start()
     }
 
+    /// Returns a proxy that follows the active singleton.
     public func proxy<Act>(
         _ type: Act.Type,
         name: String,
         settings: ClusterSingletonSettings = .init()
     ) async throws -> Act where Act: ClusterSingleton {
-        var settings = settings
-        settings.name = name
-        return try await self._get(type, settings: settings, system: self.actorSystem, makeInstance: nil)
+        var singletonSettings: ClusterSingletonSettings = settings
+        singletonSettings.name = name
+        return try await self.getSingleton(
+            type, settings: singletonSettings, system: self.startedSystem, makeInstance: nil
+        )
     }
 
     /// Configures the singleton plugin to host instances of this actor.
     public func host<Act>(
-        _ type: Act.Type = Act.self,
         name: String,
         settings: ClusterSingletonSettings = .init(),
+        type: Act.Type = Act.self,
         makeInstance factory: (@Sendable (ClusterSystem) async throws -> Act)? = nil
     ) async throws -> Act where Act: ClusterSingleton {
-        var settings = settings
-        settings.name = name
-        return try await self._get(type, settings: settings, system: self.actorSystem, makeInstance: factory)
+        var singletonSettings: ClusterSingletonSettings = settings
+        singletonSettings.name = name
+        return try await self.getSingleton(
+            type, settings: singletonSettings, system: self.startedSystem, makeInstance: factory
+        )
     }
 
-    internal func _get<Act>(
+    internal func getSingleton<Act>(
         _ type: Act.Type,
         settings: ClusterSingletonSettings,
         system: ClusterSystem,
         makeInstance factory: (@Sendable (ClusterSystem) async throws -> Act)?
     ) async throws -> Act where Act: ClusterSingleton {
-        let singletonName = settings.name
+        let singletonName: String = settings.name
         guard !singletonName.isEmpty else {
             fatalError("ClusterSingleton \(Act.self) must have specified unique name!")
         }
 
-        let known = self.singletons[singletonName]
+        let known: (proxyID: ActorID, boss: any ClusterSingletonBossProtocol)? = self.singletons[singletonName]
         if let existingID = known?.proxyID {
             return try Act.resolve(id: existingID, using: system)
         }
 
         // Spawn the singleton boss (one per singleton per node)
-        let boss = try await ClusterSingletonBoss(
+        let boss: ClusterSingletonBoss<Act> = try await ClusterSingletonBoss(
             settings: settings,
             system: system,
             factory
         )
-        let interceptor = ClusterSingletonRemoteCallInterceptor(system: system, singletonBoss: boss)
-        let proxied = try system.interceptCalls(to: type, metadata: ActorMetadata(), interceptor: interceptor)
+        let interceptor: ClusterSingletonRemoteCallInterceptor<Act> =
+            ClusterSingletonRemoteCallInterceptor(system: system, singletonBoss: boss)
+        let proxied: Act = try system.interceptCalls(to: type, metadata: ActorMetadata(), interceptor: interceptor)
 
         self.singletons[singletonName] = (proxied.id, boss)
         return proxied
     }
 
     // FOR TESTING
-    internal func _boss<Singleton: ClusterSingleton>(name: String, type: Singleton.Type = Singleton.self) -> ClusterSingletonBoss<Singleton>? {
+    internal func singletonBoss<Singleton: ClusterSingleton>(
+        name: String,
+        type _: Singleton.Type = Singleton.self
+    ) -> ClusterSingletonBoss<Singleton>? {
         guard let (_, boss) = self.singletons[name] else {
             return nil
         }
 
         return boss as? ClusterSingletonBoss<Singleton>
     }
-}
-
-// ==== ----------------------------------------------------------------------------------------------------------------
-// MARK: Plugin protocol conformance
-
-extension ClusterSingletonPlugin: Plugin {
-    static let pluginKey: Key = "$clusterSingleton"
-
-    public nonisolated var key: Key {
-        Self.pluginKey
-    }
-
-    public func start(_ system: ClusterSystem) async throws {
+    public func start(_ system: ClusterSystem) {
         self.actorSystem = system
     }
 
-    public func stop(_ system: ClusterSystem) async {
+    public func stop(_: ClusterSystem) async {
         self.actorSystem = nil
         for (_, (_, boss)) in self.singletons {
             await boss.stop()
         }
-    }
-}
-
-// ==== ----------------------------------------------------------------------------------------------------------------
-// MARK: Singleton refs and actors
-
-extension ClusterSystem {
-    public var singleton: ClusterSingletonPlugin {
-        let key = ClusterSingletonPlugin.pluginKey
-        guard let singletonPlugin = self.settings.plugins[key] else {
-            fatalError("No plugin found for key: [\(key)], installed plugins: \(self.settings.plugins)")
-        }
-        return singletonPlugin
     }
 }

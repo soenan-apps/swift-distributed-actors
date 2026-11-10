@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import Foundation
@@ -18,9 +18,9 @@ import XCTest
 
 @testable import DistributedCluster
 
-final class MailboxTests: SingleClusterSystemXCTestCase {
-    func test_sendMessage_shouldDropMessagesWhenFull() {
-        let mailbox: _Mailbox<Int> = _Mailbox(system: self.system, capacity: 2)
+internal final class MailboxTests: SingleClusterSystemXCTestCase {
+    internal func test_sendMessage_shouldDropMessagesWhenFull() {
+        let mailbox: Mailbox<Int> = Mailbox(system: self.system, capacity: 2)
 
         (mailbox.enqueueUserMessage(Payload(payload: .message(1))) == .needsScheduling).shouldBeTrue()
         (mailbox.enqueueUserMessage(Payload(payload: .message(2))) == .alreadyScheduled).shouldBeTrue()

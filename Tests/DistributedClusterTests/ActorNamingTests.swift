@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,38 +10,43 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import XCTest
 
 @testable import DistributedCluster
 
-final class ActorNamingTests: XCTestCase {
-    func test_makeName_unique() {
-        var context = ActorNamingContext()
-        let naming = _ActorNaming.unique("hello")
+internal final class ActorNamingTests: XCTestCase {
+    internal func test_makeName_unique() {
+        var context: ActorNamingContext = ActorNamingContext()
+        let naming: ActorNaming = ActorNaming.unique("hello")
 
         for _ in 0...3 {
-            let name = naming.makeName(&context)
+            let name: String = naming.makeName(&context)
             name.shouldEqual("hello")
         }
     }
 
-    func test_makeName_sequentialNumeric() {
-        var context = ActorNamingContext()
-        let naming = _ActorNaming(unchecked: .prefixed(prefix: "hello", suffixScheme: .sequentialNumeric))
+    internal func test_makeName_sequentialNumeric() {
+        var context: ActorNamingContext = ActorNamingContext()
+        let naming: ActorNaming = ActorNaming(unchecked: .prefixed(prefix: "hello", suffixScheme: .sequentialNumeric))
 
-        for i in 0...100 {
-            let name = naming.makeName(&context)
-            name.shouldEqual("hello-\(i)")
+        for index in 0...100 {
+            let name: String = naming.makeName(&context)
+            name.shouldEqual("hello-\(index)")
         }
     }
 
-    func test_makeName_letters() {
-        var context = ActorNamingContext()
-        let naming = _ActorNaming(unchecked: .prefixed(prefix: "hello", suffixScheme: .letters))
+    internal func test_makeName_letters() {
+        var context: ActorNamingContext = ActorNamingContext()
+        let naming: ActorNaming = ActorNaming(unchecked: .prefixed(prefix: "hello", suffixScheme: .letters))
 
+        assertSingleLetterNames(naming, context: &context)
+        assertTwoLetterNames(naming, context: &context)
+    }
+
+    private func assertSingleLetterNames(_ naming: ActorNaming, context: inout ActorNamingContext) {
         naming.makeName(&context).shouldEqual("hello-y")
         naming.makeName(&context).shouldEqual("hello-b")
         naming.makeName(&context).shouldEqual("hello-n")
@@ -74,6 +79,9 @@ final class ActorNamingTests: XCTestCase {
         naming.makeName(&context).shouldEqual("hello-7")
         naming.makeName(&context).shouldEqual("hello-6")
         naming.makeName(&context).shouldEqual("hello-9")
+    }
+
+    private func assertTwoLetterNames(_ naming: ActorNaming, context: inout ActorNamingContext) {
         naming.makeName(&context).shouldEqual("hello-yb")
         naming.makeName(&context).shouldEqual("hello-bb")
         naming.makeName(&context).shouldEqual("hello-nb")

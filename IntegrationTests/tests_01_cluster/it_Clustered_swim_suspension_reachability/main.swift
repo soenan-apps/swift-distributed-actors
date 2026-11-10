@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedCluster
 import Logging
@@ -18,18 +18,17 @@ import SWIM
 
 print("Getting args")
 
-var args = CommandLine.arguments
+internal var args: [String] = CommandLine.arguments
+
 args.removeFirst()
 
 print("got args: \(args)")
 
-guard args.count >= 1 else {
-    fatalError("no port given")
+guard args.count >= 1, let bindPort = Int(args[0]) else {
+    fatalError("no valid port given")
 }
 
-let bindPort = Int(args[0])!
-
-let system = await ClusterSystem("System") { settings in
+internal let kSystem: ClusterSystem = await ClusterSystem("System") { settings in
     settings.logging.logLevel = .info
 
     settings.bindPort = bindPort
@@ -40,22 +39,24 @@ let system = await ClusterSystem("System") { settings in
     settings.swim.lifeguard.suspicionTimeoutMax = .seconds(1)
 
     settings.autoLeaderElection = .lowestReachable(minNumberOfMembers: 2)
-    settings.downingStrategy = .none
+    settings.downingStrategy = .disabled
 }
 
 Task {
-    for await event in system.cluster.events {
-        system.log.info("Event: \(event)")
+    for await event in kSystem.cluster.events {
+        kSystem.log.info("Event: \(event)")
     }
 }
 
 if args.count >= 3 {
     print("getting host")
-    let host = args[1]
+    let host: String = args[1]
     print("parsing port")
-    let port = Int(args[2])!
+    guard let port = Int(args[2]) else {
+        fatalError("no valid join port given")
+    }
     print("Joining")
-    system.cluster.join(endpoint: Cluster.Endpoint(systemName: "System", host: host, port: port))
+    kSystem.cluster.join(endpoint: Cluster.Endpoint(systemName: "System", host: host, port: port))
 }
 
-_Thread.sleep(.seconds(120))
+ClusterThread.sleep(.seconds(120))

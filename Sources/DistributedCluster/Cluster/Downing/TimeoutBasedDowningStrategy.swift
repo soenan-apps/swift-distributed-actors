@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 /// The `TimeoutBasedDowningStrategy` marks nodes that have been unreachable as `.down` after a configurable timeout.
 ///
@@ -18,26 +18,26 @@
 /// Non-leading nodes will keep track of the nodes they would have marked down and do so in case they become leader.
 /// If a node becomes reachable again before the timeout expires, it will not be considered for downing anymore.
 public final class TimeoutBasedDowningStrategy: DowningStrategy {
-    let settings: TimeoutBasedDowningStrategySettings
-    let selfNode: Cluster.Node
+    internal let settings: TimeoutBasedDowningStrategySettings
+    internal let selfNode: Cluster.Node
 
-    var membership: Cluster.Membership
+    internal var membership: Cluster.Membership
 
-    var isLeader: Bool {
+    internal var isLeader: Bool {
         self.membership.isLeader(self.selfNode)
     }
 
     // unreachable members will be marked down after the timeout expires
-    var _unreachable: Set<Cluster.Member>
+    internal var unreachableMembers: Set<Cluster.Member>
 
     // buffer for nodes that will be marked down, if this node becomes the leader
-    var _markAsDown: Set<Cluster.Member>
+    internal var pendingDownMembers: Set<Cluster.Member>
 
-    init(_ settings: TimeoutBasedDowningStrategySettings, selfNode: Cluster.Node) {
+    internal init(_ settings: TimeoutBasedDowningStrategySettings, selfNode: Cluster.Node) {
         self.settings = settings
         self.selfNode = selfNode
-        self._unreachable = []
-        self._markAsDown = []
+        self.unreachableMembers = []
+        self.pendingDownMembers = []
         self.membership = .empty
     }
 
@@ -45,25 +45,26 @@ public final class TimeoutBasedDowningStrategy: DowningStrategy {
         switch event {
         case .snapshot(let snapshot):
             self.membership = snapshot
-            return .none
+            return .unchanged
 
         case .membershipChange(let change):
-            guard let change = self.membership.applyMembershipChange(change) else {
-                return .none
+            guard let appliedChange = self.membership.applyMembershipChange(change) else {
+                return .unchanged
             }
 
-            if change.isAtLeast(.down) {
+            if appliedChange.isAtLeast(.down) {
                 // it was marked as down by someone, we don't need to track it anymore
-                _ = self._markAsDown.remove(change.member)
-                _ = self._unreachable.remove(change.member)
-                return .cancelTimer(member: change.member)
-            } else if let replaced = change.replaced {
-                _ = self._markAsDown.remove(replaced)
-                _ = self._unreachable.remove(replaced)
+                _ = self.pendingDownMembers.remove(appliedChange.member)
+                _ = self.unreachableMembers.remove(appliedChange.member)
+                return .cancelTimer(member: appliedChange.member)
+            }
+            if let replaced = appliedChange.replaced {
+                _ = self.pendingDownMembers.remove(replaced)
+                _ = self.unreachableMembers.remove(replaced)
                 return .markAsDown(members: [replaced])
             }
 
-            return .none
+            return .unchanged
 
         case .leadershipChange(let change):
             return try self.onLeaderChange(to: change.newLeader)
@@ -71,78 +72,63 @@ public final class TimeoutBasedDowningStrategy: DowningStrategy {
         case .reachabilityChange(let change):
             if change.toUnreachable {
                 return self.onMemberUnreachable(change)
-            } else {
-                return self.onMemberReachable(change)
             }
+            return self.onMemberReachable(change)
 
-        case ._PLEASE_DO_NOT_EXHAUSTIVELY_MATCH_THIS_ENUM_NEW_CASES_MIGHT_BE_ADDED_IN_THE_FUTURE:
-            return .none  // do nothing
+        case .nonExhaustive:
+            return .unchanged  // do nothing
         }
     }
 
     public func onTimeout(_ member: Cluster.Member) -> DowningStrategyDirective {
-        guard let nodeToDown = self._unreachable.remove(member) else {
-            return .none  // perhaps we removed it already for other reasons (e.g. node replacement)
+        guard let nodeToDown = self.unreachableMembers.remove(member) else {
+            return .unchanged  // perhaps we removed it already for other reasons (e.g. node replacement)
         }
         if self.isLeader {
             return .markAsDown(members: [nodeToDown])
-        } else {
-            self._markAsDown.insert(nodeToDown)
-            return .none
         }
+        self.pendingDownMembers.insert(nodeToDown)
+        return .unchanged
     }
 
-    func onMemberUnreachable(_ change: Cluster.ReachabilityChange) -> DowningStrategyDirective {
+    internal func onMemberUnreachable(_ change: Cluster.ReachabilityChange) -> DowningStrategyDirective {
         _ = self.membership.applyReachabilityChange(change)
-        let member = change.member
+        let member: Cluster.Member = change.member
 
-        self._unreachable.insert(member)
+        self.unreachableMembers.insert(member)
 
         return .startTimer(member: member, delay: self.settings.downUnreachableMembersAfter)
     }
 
-    func onMemberReachable(_ change: Cluster.ReachabilityChange) -> DowningStrategyDirective {
+    internal func onMemberReachable(_ change: Cluster.ReachabilityChange) -> DowningStrategyDirective {
         _ = self.membership.applyReachabilityChange(change)
-        let member = change.member
+        let member: Cluster.Member = change.member
 
-        _ = self._markAsDown.remove(member)
-        if self._unreachable.remove(member) != nil {
+        _ = self.pendingDownMembers.remove(member)
+        if self.unreachableMembers.remove(member) != nil {
             return .cancelTimer(member: member)
         }
 
-        return .none
+        return .unchanged
     }
 
-    func onLeaderChange(to leader: Cluster.Member?) throws -> DowningStrategyDirective {
+    internal func onLeaderChange(to leader: Cluster.Member?) throws -> DowningStrategyDirective {
         _ = try self.membership.applyLeadershipChange(to: leader)
 
-        if self.isLeader, !self._markAsDown.isEmpty {
-            defer { self._markAsDown = [] }
-            return .markAsDown(members: self._markAsDown)
-        } else {
-            return .none
+        if self.isLeader, !self.pendingDownMembers.isEmpty {
+            defer { self.pendingDownMembers = [] }
+            return .markAsDown(members: self.pendingDownMembers)
         }
+        return .unchanged
     }
 
-    func onMemberRemoved(_ member: Cluster.Member) -> DowningStrategyDirective {
-        self._markAsDown.remove(member)
+    internal func onMemberRemoved(_ member: Cluster.Member) -> DowningStrategyDirective {
+        self.pendingDownMembers.remove(member)
 
-        if self._unreachable.remove(member) != nil {
+        if self.unreachableMembers.remove(member) != nil {
             return .cancelTimer(member: member)
         }
 
-        return .none
-    }
-}
-
-public struct TimeoutBasedDowningStrategySettings {
-    /// Provides a slight delay after noticing an `.unreachable` before declaring down.
-    ///
-    /// Generally with a distributed failure detector such delay may not be necessary, however it is available in case
-    /// you want to allow noticing "tings are bad, but don't act on it" environments.
-    public var downUnreachableMembersAfter: Duration = .seconds(1)
-
-    public static var `default`: TimeoutBasedDowningStrategySettings {
-        .init()
+        return .unchanged
     }
 }

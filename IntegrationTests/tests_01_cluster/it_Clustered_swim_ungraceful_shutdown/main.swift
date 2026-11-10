@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,45 +10,43 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedCluster
 
-var args = CommandLine.arguments
+internal var args: [String] = CommandLine.arguments
+
 args.removeFirst()
 
 guard args.count >= 2, let bindPort = Int(args[1]) else {
     fatalError("Node name and bind port must be provided")
 }
 
-let nodeName = args[0]
+internal let kNodeName: String = args[0]
 
 print("Binding to port \(bindPort)")
 
-let system = ActorSystem(nodeName) { settings in
+internal let kSystem: ClusterSystem = await ClusterSystem(kNodeName) { settings in
     settings.logging.logLevel = .info
 
-    settings.cluster.enabled = true
-    settings.cluster.bindPort = bindPort
+    settings.enabled = true
+    settings.bindPort = bindPort
 
-    settings.cluster.swim.probeInterval = .milliseconds(300)
-    settings.cluster.swim.pingTimeout = .milliseconds(100)
+    settings.swim.probeInterval = .milliseconds(300)
+    settings.swim.pingTimeout = .milliseconds(100)
 }
 
-let ref = try system.spawn(
-    "streamWatcher",
-    of: Cluster.Event.self,
-    .receive { context, event in
-        context.log.info("Event: \(event)")
-        return .same
-    }
-)
-system.cluster.events.subscribe(ref)
+internal let kRef: ActorRef<Cluster.Event> = try kSystem.spawn("streamWatcher", .receive { context, event in
+    context.log.info("Event: \(event)")
+    return .same
+})
+
+kSystem.cluster.events.subscribe(kRef)
 
 if args.count >= 4, let joinPort = Int(args[3]) {
-    let joinHost = args[2]
+    let joinHost: String = args[2]
     print("Joining node \(joinHost):\(joinPort)")
-    system.cluster.join(host: joinHost, port: joinPort)
+    kSystem.cluster.join(host: joinHost, port: joinPort)
 }
 
-Thread.sleep(.seconds(120))
+ClusterThread.sleep(.seconds(120))

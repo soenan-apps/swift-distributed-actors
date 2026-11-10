@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Atomics
 import DistributedActorsTestKit
@@ -18,9 +18,9 @@ import XCTest
 
 @testable import DistributedCluster
 
-final class FixedThreadPoolTests: XCTestCase {
-    func test_pool_shouldProperlyShutdownAllThreads() throws {
-        let pool = try _FixedThreadPool(4)
+internal final class FixedThreadPoolTests: XCTestCase {
+    internal func test_pool_shouldProperlyShutdownAllThreads() throws {
+        let pool: FixedThreadPool = try FixedThreadPool(4)
         pool.runningWorkers.load(ordering: .relaxed).shouldEqual(4)
         pool.shutdown()
         pool.runningWorkers.load(ordering: .relaxed).shouldEqual(0)

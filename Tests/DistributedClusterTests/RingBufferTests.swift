@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,107 +10,105 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import XCTest
 
 @testable import DistributedCluster
 
-class RingBufferTests: XCTestCase {
-    let capacity: Int = 10
+internal final class RingBufferTests: XCTestCase {
+    private let capacity: Int = 10
 
-    func test_isEmpty_empty() {
+    internal func test_isEmpty_empty() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
 
         buffer.isEmpty.shouldEqual(true)
     }
 
-    func test_isEmpty_non_empty() {
+    internal func test_isEmpty_non_empty() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
         _ = buffer.offer(element: 1)
 
         buffer.isEmpty.shouldEqual(false)
     }
 
-    func test_isEmpty_after_wrap() {
+    internal func test_isEmpty_after_wrap() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
-        for i in 1...self.capacity {
-            if buffer.offer(element: i) {
-                _ = buffer.take()
-            }
+        for index in 1...self.capacity where buffer.offer(element: index) {
+            _ = buffer.take()
         }
 
         buffer.isEmpty.shouldEqual(true)
     }
 
-    func test_isFull_empty() {
+    internal func test_isFull_empty() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
 
         buffer.isFull.shouldEqual(false)
     }
 
-    func test_isFull_non_empty() {
+    internal func test_isFull_non_empty() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
         _ = buffer.offer(element: 1)
 
         buffer.isFull.shouldEqual(false)
     }
 
-    func test_isFull_full() {
+    internal func test_isFull_full() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
-        for i in 1...self.capacity {
-            _ = buffer.offer(element: i)
+        for index in 1...self.capacity {
+            _ = buffer.offer(element: index)
         }
 
         buffer.isFull.shouldEqual(true)
     }
 
-    func test_offer_empty() {
+    internal func test_offer_empty() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
 
-        for i in 1...self.capacity {
-            buffer.offer(element: i).shouldEqual(true)
+        for index in 1...self.capacity {
+            buffer.offer(element: index).shouldEqual(true)
         }
     }
 
-    func test_offer_full() {
+    internal func test_offer_full() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
 
-        for i in 1...self.capacity {
-            buffer.offer(element: i).shouldEqual(true)
+        for index in 1...self.capacity {
+            buffer.offer(element: index).shouldEqual(true)
         }
 
         buffer.offer(element: 1).shouldEqual(false)
     }
 
-    func test_take_empty() {
+    internal func test_take_empty() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
 
         buffer.take().shouldBeNil()
     }
 
-    func test_take_non_empty() {
+    internal func test_take_non_empty() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
         _ = buffer.offer(element: 1)
 
         buffer.take().shouldEqual(1)
     }
 
-    func test_peek_empty() {
+    internal func test_peek_empty() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
 
         buffer.peek().shouldBeNil()
     }
 
-    func test_peek_non_empty() {
+    internal func test_peek_non_empty() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
         _ = buffer.offer(element: 1)
 
         buffer.peek().shouldEqual(1)
     }
 
-    func test_peek_non_empty_multiple_calls() {
+    internal func test_peek_non_empty_multiple_calls() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
         _ = buffer.offer(element: 1)
 
@@ -121,52 +119,52 @@ class RingBufferTests: XCTestCase {
         buffer.count.shouldEqual(1)
     }
 
-    func test_writeIndex_empty() {
+    internal func test_writeIndex_empty() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
 
         buffer.writeIndex.shouldEqual(0)
     }
 
-    func test_writeIndex_full() {
+    internal func test_writeIndex_full() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
 
-        for i in 1...self.capacity {
-            _ = buffer.offer(element: i)
+        for index in 1...self.capacity {
+            _ = buffer.offer(element: index)
         }
 
         buffer.writeIndex.shouldBeNil()
     }
 
-    func test_writeIndex_empty_after_wrap() {
+    internal func test_writeIndex_empty_after_wrap() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
 
-        for i in 1...self.capacity {
-            _ = buffer.offer(element: i)
+        for index in 1...self.capacity {
+            _ = buffer.offer(element: index)
             _ = buffer.take()
         }
 
         buffer.writeIndex.shouldEqual(0)
     }
 
-    func test_readIndex_empty() {
+    internal func test_readIndex_empty() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
 
         buffer.readIndex.shouldBeNil()
     }
 
-    func test_readIndex_non_empty_first() {
+    internal func test_readIndex_non_empty_first() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
 
         _ = buffer.offer(element: 1)
         buffer.readIndex.shouldEqual(0)
     }
 
-    func test_readIndex_non_empty_middle() {
+    internal func test_readIndex_non_empty_middle() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
-        let middleIndex = (capacity / 2)
+        let middleIndex: Int = (capacity / 2)
 
-        for i in 1...middleIndex {
-            _ = buffer.offer(element: i)
+        for index in 1...middleIndex {
+            _ = buffer.offer(element: index)
             _ = buffer.take()
         }
         _ = buffer.offer(element: 1)
@@ -174,10 +172,10 @@ class RingBufferTests: XCTestCase {
         buffer.readIndex.shouldEqual(middleIndex)
     }
 
-    func test_readIndex_empty_after_wrap() {
+    internal func test_readIndex_empty_after_wrap() {
         let buffer: RingBuffer<Int> = RingBuffer(capacity: capacity)
-        for i in 1...self.capacity {
-            _ = buffer.offer(element: i)
+        for index in 1...self.capacity {
+            _ = buffer.offer(element: index)
             _ = buffer.take()
         }
 

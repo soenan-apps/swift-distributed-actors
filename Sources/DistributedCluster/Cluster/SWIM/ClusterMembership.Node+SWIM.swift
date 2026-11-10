@@ -1,0 +1,76 @@
+// ===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift Distributed Actors open source project
+//
+// Copyright (c) 2018-2022 Apple Inc. and the Swift Distributed Actors project authors
+// Licensed under Apache License v2.0
+//
+// See LICENSE.txt for license information
+// See CONTRIBUTORS.txt for the list of Swift Distributed Actors project authors
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// ===----------------------------------------------------------------------===//
+
+import ClusterMembership
+import Logging
+import SWIM
+
+import enum Dispatch.DispatchTimeInterval
+
+extension ClusterMembership.Node {
+    internal var asClusterNode: Cluster.Node? {
+        guard let uid = self.uid else {
+            return nil
+        }
+
+        return .init(
+            protocol: self.protocol,
+            systemName: self.name ?? "",
+            host: self.host,
+            port: self.port,
+            nid: .init(uid)
+        )
+    }
+
+    internal var asNode: DistributedCluster.Cluster.Endpoint {
+        .init(protocol: self.protocol, systemName: self.name ?? "", host: self.host, port: self.port)
+    }
+
+    internal init(node: Cluster.Node) {
+        self.init(
+            protocol: node.endpoint.protocol,
+            name: node.endpoint.systemName,
+            host: node.host,
+            port: node.port,
+            uid: node.nid.value
+        )
+    }
+
+    internal func swimShell(_ system: ClusterSystem) -> SWIMActor {
+        guard let clusterNode = self.asClusterNode else {
+            preconditionFailure("Resolving a SWIM peer requires a node UID")
+        }
+        let actorID: ActorID = .swim(on: clusterNode)
+        do {
+            return try SWIMActor.resolve(id: actorID, using: system)
+        } catch {
+            fatalError(
+                "Failed to resolve \(actorID.detailedDescription): \(error), tree: \n\(system.treeString())"
+            )
+        }
+    }
+
+}
+
+extension Cluster.Node {
+    internal var asSWIMNode: ClusterMembership.Node {
+        .init(
+            protocol: self.endpoint.protocol,
+            name: self.endpoint.systemName,
+            host: self.endpoint.host,
+            port: self.port,
+            uid: self.nid.value
+        )
+    }
+}

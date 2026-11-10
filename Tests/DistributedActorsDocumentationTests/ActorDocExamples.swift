@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 // tag::imports[]
 
@@ -21,18 +21,58 @@ import XCTest
 
 // end::imports[]
 
-class ActorDocExamples: XCTestCase {
+// tag::suggested_props_pattern[]
+internal enum ExampleWorker {
+    internal static var suggested: (Behavior<WorkerMessages>, Props) {
+        (behavior, Self.props)
+    }
+
+    internal static var behavior: Behavior<WorkerMessages> = .receive { context, _ in
+        context.log.info("Work, work!")
+        return .same
+    }
+
+    internal static var props: Props = .init().dispatcher(.pinnedThread)
+}
+
+internal enum WorkerMessages: String, Codable {
+    case something = "something"
+}
+
+internal func run(system: ClusterSystem) throws {
+    let (behavior, props): (Behavior<WorkerMessages>, Props) = ExampleWorker.suggested
+    try system.spawn("heavy-worker", behavior, props: props)
+}
+
+// end::suggested_props_pattern[]
+internal final class ActorDocExamples: XCTestCase {
     // tag::message_greetings[]
-    enum Greetings: _NotActuallyCodableMessage {
+    private enum Greetings: NotActuallyCodableMessage {
         case greet(name: String)
         case greeting(String)
     }
 
+    private enum LineByLineData {
+        case line(String)
+        case endOfFile
+    }
+
     // end::message_greetings[]
 
-    func example_receive_behavior() throws {
+    // tag::stop_myself_refactored[]
+    private static func stopForTerminal(_ data: LineByLineData) -> Behavior<String> {
+        switch data {
+        case .endOfFile:
+            return .stop
+
+        default:
+            return .same
+        }
+    }
+    // end::stop_myself_refactored[]
+    private func example_receive_behavior() {
         // tag::receive_behavior[]
-        let behavior: _Behavior<Greetings> = .receive { _, message in  // <1>
+        let behavior: Behavior<Greetings> = .receive { _, message in  // <1>
             print("Received \(message)")  // <2>
             return .same  // <3>
         }
@@ -40,9 +80,9 @@ class ActorDocExamples: XCTestCase {
         _ = behavior  // silence not-used warning
     }
 
-    func example_receiveMessage_behavior() throws {
+    private func example_receiveMessage_behavior() {
         // tag::receiveMessage_behavior[]
-        let behavior: _Behavior<Greetings> = .receiveMessage { message in  // <1>
+        let behavior: Behavior<Greetings> = .receiveMessage { message in  // <1>
             print("Received \(message)")  // <2>
             return .same  // <3>
         }
@@ -50,116 +90,81 @@ class ActorDocExamples: XCTestCase {
         _ = behavior  // silence not-used warning
     }
 
-    func example_spawn_tell() throws {
+    private func example_spawn_tell() async throws {
         // tag::spawn[]
-        let system = ClusterSystem("ExampleSystem")  // <1>
+        let system: ClusterSystem = await ClusterSystem("ExampleSystem")  // <1>
 
-        let greeterBehavior: _Behavior<String> = .receiveMessage { name in  // <2>
+        let greeterBehavior: Behavior<String> = .receiveMessage { name in  // <2>
             print("Hello \(name)!")
             return .same
         }
 
-        let greeterRef: _ActorRef<String> = try system._spawn("greeter", greeterBehavior)  // <3>
+        let greeterRef: ActorRef<String> = try system.spawn("greeter", greeterBehavior)  // <3>
         // end::spawn[]
 
         // tag::tell_1[]
-        // greeterRef: _ActorRef<String>
+        // greeterRef: ActorRef<String>
         greeterRef.tell("Caplin")  // <1>
 
         // prints: "Hello Caplin!"
         // end::tell_1[]
     }
 
-    func example_stop_myself() throws {
+    private func example_stop_myself() {
         // tag::stop_myself_1[]
-        enum LineByLineData {
-            case line(String)
-            case endOfFile
-        }
-
-        func readData() -> LineByLineData {
-            fatalError("undefined")
-        }
-
-        let lineHandling: _Behavior<String> = .receive { _, _ in
-            let data = readData()  // <1>
+        let lineHandling: Behavior<String> = .receive { _, _ in
+            let data: LineByLineData = readLine().map(LineByLineData.line) ?? .endOfFile  // <1>
             // do things with `data`...
 
             // and then...
             switch data {
-            case .endOfFile: return .stop  // <2>
-            default: return .same
+            case .endOfFile:
+                return .stop  // <2>
+
+            default:
+                return .same
             }
         }
         // end::stop_myself_1[]
         _ = lineHandling  // silence not used warning
     }
 
-    class X {
-        enum LineByLineData {
-            case line(String)
-            case endOfFile
-        }
-
+    private func example_stop_myself_refactored() {
         // tag::stop_myself_refactored[]
-        private func stopForTerminal(_ data: LineByLineData) -> _Behavior<String> {
-            switch data {
-            case .endOfFile: return .stop
-            default: return .same
-            }
-        }
-
-        // end::stop_myself_refactored[]
-    }
-
-    func example_stop_myself_refactored() throws {
-        func readData() -> X.LineByLineData {
-            fatalError("undefined")
-        }
-
-        func stopForTerminal(_: X.LineByLineData) -> _Behavior<String> {
-            fatalError("undefined")
-        }
-
-        // tag::stop_myself_refactored[]
-        let lineHandling: _Behavior<String> = .receive { _, _ in
-            let data = readData()
+        let lineHandling: Behavior<String> = .receive { _, _ in
+            let data: LineByLineData = readLine().map(LineByLineData.line) ?? .endOfFile
             // do things with `data`...
 
             // and then...
-            return stopForTerminal(data)
+            return Self.stopForTerminal(data)
         }
         // end::stop_myself_refactored[]
         _ = lineHandling  // silence not-used warning
     }
 
-    func example_props() throws {
+    private func example_props() {
         // tag::props_example[]
-        let props = _Props()
+        let props: Props = Props()
         // end::props_example[]
         _ = props  // silence not-used warning
     }
 
-    func example_props_inline() throws {
-        let behavior: _Behavior<String> = .ignore
-        let system = ClusterSystem("ExampleSystem")
+    private func example_props_inline() async throws {
+        let behavior: Behavior<String> = .ignore
+        let system: ClusterSystem = await ClusterSystem("ExampleSystem")
 
         // tag::props_inline[]
-        let worker = try system._spawn(
-            "worker",
-            props: .dispatcher(.default),
-            behavior
-        )
+        let worker: ActorRef<String> = try system.spawn("worker", behavior, props: .dispatcher(.default))
         // end::props_inline[]
         _ = worker  // silence not-used warning
     }
 
-    func example_receptionist_register() {
+    private func example_receptionist_register() {
         // tag::receptionist_register[]
-        let key = _Reception.Key(_ActorRef<String>.self, id: "my-actor")  // <1>
+        let key: Reception.Key = Reception.Key(ActorRef<String>.self, id: "my-actor")  // <1>
 
-        let behavior: _Behavior<String> = .setup { context in
-            context.receptionist.registerMyself(with: key)  // <2>
+        let behavior: Behavior<String> = .setup { context in
+            context.receptionist.registerMyself(with: key, replyTo: nil)  // <2>
 
             return .receiveMessage { _ in
                 // ...
@@ -171,31 +176,32 @@ class ActorDocExamples: XCTestCase {
         _ = behavior
     }
 
-    func example_receptionist_lookup() {
-        let key = _Reception.Key(_ActorRef<String>.self, id: "my-actor")
-        let system = ClusterSystem("LookupExample")
+    private func example_receptionist_lookup() async throws {
+        let key: Reception.Key = Reception.Key(ActorRef<String>.self, id: "my-actor")
+        let system: ClusterSystem = await ClusterSystem("LookupExample")
         // tag::receptionist_lookup[]
-        let response = system._receptionist.lookup(key, timeout: .seconds(1))  // <1>
-
-        response._onComplete { result in
-            if case .success(let listing) = result {
+        let response: ActorRef<Reception.Listing<ActorRef<String>>> = try system.spawn(
+            "lookupResponse",
+            .receiveMessage { listing in
                 for ref in listing.refs {
                     ref.tell("Hello")
                 }
+                return .stop
             }
-        }
+        )  // <1>
+        system.actorRefReceptionist.lookup(key, replyTo: response, timeout: .seconds(1))
 
         // end::receptionist_lookup[]
     }
 
-    func example_receptionist_subscribe() {
-        let key = _Reception.Key(_ActorRef<String>.self, id: "my-actor")
+    private func example_receptionist_subscribe() {
+        let key: Reception.Key = Reception.Key(ActorRef<String>.self, id: "my-actor")
         // tag::receptionist_subscribe[]
-        let behavior: _Behavior<_Reception.Listing<_ActorRef<String>>> = .setup { context in
-            context.system._receptionist.subscribe(context.myself, to: key)  // <1>
+        let behavior: Behavior<Reception.Listing<ActorRef<String>>> = .setup { context in
+            context.system.actorRefReceptionist.subscribe(context.myself, to: key)  // <1>
 
-            return .receiveMessage {
-                for ref in $0.refs {
+            return .receiveMessage { listing in
+                for ref in listing.refs {
                     ref.tell("Hello")
                 }
                 return .same
@@ -206,14 +212,14 @@ class ActorDocExamples: XCTestCase {
         _ = behavior
     }
 
-    func example_context_receptionist_subscribe() {
-        let key = _Reception.Key(_ActorRef<String>.self, id: "my-actor")
+    private func example_context_receptionist_subscribe() {
+        let key: Reception.Key = Reception.Key(ActorRef<String>.self, id: "my-actor")
         // tag::context_receptionist_subscribe[]
-        let behavior: _Behavior<_Reception.Listing<_ActorRef<String>>> = .setup { context in
-            context.system._receptionist.subscribe(context.myself, to: key)  // <1>
+        let behavior: Behavior<Reception.Listing<ActorRef<String>>> = .setup { context in
+            context.system.actorRefReceptionist.subscribe(context.myself, to: key)  // <1>
 
-            return .receiveMessage {
-                for ref in $0.refs {
+            return .receiveMessage { listing in
+                for ref in listing.refs {
                     ref.tell("Hello")
                 }
                 return .same
@@ -224,54 +230,55 @@ class ActorDocExamples: XCTestCase {
         _ = behavior
     }
 
-    func example_ask_outside() throws {
-        let system = ClusterSystem("ExampleSystem")
+    private func example_ask_outside() async throws {
+        let system: ClusterSystem = await ClusterSystem("ExampleSystem")
 
         // tag::ask_outside[]
         struct Hello: Codable {
             let name: String
-            let replyTo: _ActorRef<String>
+            let replyTo: ActorRef<String>
         }
 
-        let greeterBehavior: _Behavior<Hello> = .receiveMessage { message in
+        let greeterBehavior: Behavior<Hello> = .receiveMessage { message in
             message.replyTo.tell("Hello \(message.name)!")
             return .same
         }
 
-        let greeter = try system._spawn("greeter", greeterBehavior)
+        let greeter: ActorRef<Hello> = try system.spawn("greeter", greeterBehavior)
 
-        let response = greeter.ask(for: String.self, timeout: .seconds(1)) { replyTo in  // <1>
+        let response: AskResponse<String> = greeter.ask(timeout: .seconds(1)) { replyTo in  // <1>
             Hello(name: "Anne", replyTo: replyTo)  // <2>
         }
 
-        response._onComplete { result in _ = result }  // <3>
+        response.onComplete { result in _ = result }  // <3>
         // end::ask_outside[]
     }
 
-    func example_ask_inside() throws {
-        let system = ClusterSystem("ExampleSystem")
+    private func example_ask_inside() async throws {
+        let system: ClusterSystem = await ClusterSystem("ExampleSystem")
 
         // tag::ask_inside[]
         struct Hello: Codable {
             let name: String
-            let replyTo: _ActorRef<String>
+            let replyTo: ActorRef<String>
         }
 
-        let greeterBehavior: _Behavior<Hello> = .receiveMessage { message in
+        let greeterBehavior: Behavior<Hello> = .receiveMessage { message in
             message.replyTo.tell("Hello \(message.name)!")
             return .same
         }
-        let greeter = try system._spawn("greeter", greeterBehavior)
 
-        let caplinBehavior: _Behavior<Never> = .setup { context in
+        let greeter: ActorRef<Hello> = try system.spawn("greeter", greeterBehavior)
+
+        let caplinBehavior: Behavior<Never> = .setup { context in
             let timeout: Duration = .seconds(1)
 
             let response: AskResponse<String> =  // <1>
-                greeter.ask(for: String.self, timeout: timeout) {
-                    Hello(name: context.name, replyTo: $0)
+                greeter.ask(timeout: timeout) { replyTo in
+                    Hello(name: context.name, replyTo: replyTo)
                 }
 
-            func greeted() -> _Behavior<Never> {
+            func greeted() -> Behavior<Never> {
                 .stop
             }
 
@@ -281,32 +288,7 @@ class ActorDocExamples: XCTestCase {
             }
         }
 
-        try system._spawn("caplin", caplinBehavior)
+        try system.spawn("caplin", caplinBehavior)
         // end::ask_inside[]
     }
 }
-
-// tag::suggested_props_pattern[]
-enum ExampleWorker {
-    public static var suggested: (_Behavior<WorkerMessages>, _Props) {
-        (behavior, ExampleWorker.props)
-    }
-
-    internal static var behavior: _Behavior<WorkerMessages> = .receive { context, _ in
-        context.log.info("Work, work!")
-        return .same
-    }
-
-    internal static var props: _Props = .init().dispatcher(.pinnedThread)
-}
-
-enum WorkerMessages: String, Codable {
-    case something
-}
-
-func run(system: ClusterSystem) throws {
-    let (b, props) = ExampleWorker.suggested  // TODO: replace with class/Shell pattern?
-    try system._spawn("heavy-worker", props: props, b)
-}
-
-// end::suggested_props_pattern[]

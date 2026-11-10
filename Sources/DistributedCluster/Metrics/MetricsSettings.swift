@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,18 +10,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsConcurrencyHelpers
 import Metrics
 
 /// Configure metrics exposed by the actor system.
 public struct MetricsSettings {
-    public static func `default`(rootName: String?) -> MetricsSettings {
-        var it = MetricsSettings()
-        it.systemName = rootName
-        return it
-    }
 
     /// Configure the segments separator for use when creating labels;
     /// Some systems like graphite like "." as the separator, yet others may not treat this as legal character.
@@ -33,20 +28,19 @@ public struct MetricsSettings {
     ///
     /// Defaults to the actor system's name.
     public var systemName: String? {
+        get {
+            self.configuredSystemName
+        }
         set {
-            guard newValue != "", newValue != nil else {
-                self._systemName = nil
+            guard let newValue, !newValue.isEmpty else {
+                self.configuredSystemName = nil
                 return
             }
-
-            self._systemName = newValue
-        }
-        get {
-            self._systemName
+            self.configuredSystemName = newValue
         }
     }
 
-    internal var _systemName: String?
+    internal var configuredSystemName: String?
 
     /// Segment prefixed before all metrics exported automatically by the actor system.
     ///
@@ -57,17 +51,27 @@ public struct MetricsSettings {
     /// Segment prefixed to all SWIM metrics.
     public var clusterSWIMMetricsPrefix: String? = "cluster.swim"
 
-    func makeLabel(_ segments: String...) -> String {
-        let joinedSegments = segments.joined(separator: self.segmentSeparator)
+    /// Creates settings with an optional actor-system metric prefix.
+    public static func `default`(rootName: String?) -> Self {
+        var settings: Self = Self()
+        settings.systemName = rootName
+        return settings
+    }
+
+    internal func makeLabel(_ segments: String...) -> String {
+        let joinedSegments: String = segments.joined(separator: self.segmentSeparator)
 
         // this is purposefully not using more fluent patterns, to avoid array allocations etc.
         switch (self.systemName, self.systemMetricsPrefix) {
-        case (.some(let root), .some(let prefix)):
+        case let (.some(root), .some(prefix)):
             return "\(root)\(self.segmentSeparator)\(prefix)\(self.segmentSeparator)\(joinedSegments)"
-        case (.none, .some(let prefix)):
+
+        case let (.none, .some(prefix)):
             return "\(prefix)\(self.segmentSeparator)\(joinedSegments)"
-        case (.some(let root), .none):
+
+        case let (.some(root), .none):
             return "\(root)\(self.segmentSeparator)\(joinedSegments)"
+
         case (.none, .none):
             return joinedSegments
         }

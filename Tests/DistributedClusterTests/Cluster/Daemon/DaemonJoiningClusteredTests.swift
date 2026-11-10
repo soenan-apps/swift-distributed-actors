@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Distributed
 import DistributedActorsTestKit
@@ -18,8 +18,10 @@ import XCTest
 
 @testable import DistributedCluster
 
-final class DaemonJoiningClusteredTests: ClusteredActorSystemsXCTestCase {
-    override func configureLogCapture(settings: inout LogCapture.Settings) {
+internal final class DaemonJoiningClusteredTests: ClusteredActorSystemsXCTestCase {
+    internal var daemon: ClusterDaemon?
+
+    override internal func configureLogCapture(settings: inout LogCapture.Settings) {
         settings.excludeActorPaths = [
             "/system/cluster/swim",
             "/system/cluster/gossip",
@@ -36,21 +38,20 @@ final class DaemonJoiningClusteredTests: ClusteredActorSystemsXCTestCase {
         ]
     }
 
-    var daemon: ClusterDaemon?
-
-    override func tearDown() async throws {
+    override internal func tearDown() async throws {
         try await super.tearDown()
         try await self.daemon?.shutdown().wait()
     }
 
-    func test_shouldPerformLikeASeedNode() async throws {
+    internal func test_shouldPerformLikeASeedNode() async throws {
         self.daemon = await ClusterSystem.startClusterDaemon()
-        let first = await self.setUpNode("first") { settings in
+        let first: ClusterSystem = await self.setUpNode("first") { settings in
             settings.discovery = .clusterd
         }
-        let second = await self.setUpNode("second") { settings in
+
+        let second: ClusterSystem = await self.setUpNode("second") { settings in
             settings.discovery = .clusterd
         }
-        try await ensureNodes(atLeast: .up, nodes: [first.cluster.node, second.cluster.node])
+        try await ensureNodes(atLeast: .operational, nodes: [first.cluster.node, second.cluster.node])
     }
 }

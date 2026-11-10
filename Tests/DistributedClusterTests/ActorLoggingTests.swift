@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import Foundation
@@ -19,58 +19,57 @@ import XCTest
 
 @testable import DistributedCluster
 
-final class ActorLoggingTests: SingleClusterSystemXCTestCase {
-    var exampleSenderPath: ActorPath!
+private enum Rendered: String, Codable {
+    case instance = "instance"
+}
 
-    override func setUp() {
-        super.setUp()
+internal final class ActorLoggingTests: SingleClusterSystemXCTestCase {
 
-        self.exampleSenderPath = try! ActorPath(root: "user")
-        self.exampleSenderPath.append(segment: try! ActorPathSegment("hello"))
-        self.exampleSenderPath.append(segment: try! ActorPathSegment("deep"))
-        self.exampleSenderPath.append(segment: try! ActorPathSegment("path"))
-        self.exampleSenderPath.append(segment: try! ActorPathSegment("avoid-rendering-this-if-possible"))
-    }
+    internal func test_actorLogger_shouldIncludeActorPath() throws {
+        let senderPath: ActorPath = try ActorPath(root: "user")
+            .appending("hello").appending("deep").appending("path").appending("avoid-rendering-this-if-possible")
+        let probe: ActorTestProbe<String> = self.testKit.makeTestProbe("p", expecting: String.self)
+        let resultProbe: ActorTestProbe<Rendered> = self.testKit.makeTestProbe("r", expecting: Rendered.self)
 
-    func test_actorLogger_shouldIncludeActorPath() throws {
-        let p = self.testKit.makeTestProbe("p", expecting: String.self)
-        let r = self.testKit.makeTestProbe("r", expecting: Rendered.self)
-
-        let ref: _ActorRef<String> = try system._spawn(
+        let ref: ActorRef<String> = try system.spawn(
             "myName",
+
             .setup { context in
                 // ~~~~~~~ (imagine as) set by swift-distributed-actors library internally ~~~~~~~~~~
                 context.log[metadataKey: "senderPath"] = .lazyStringConvertible {
-                    r.ref.tell(.instance)
-                    return self.exampleSenderPath.description
+                    resultProbe.ref.tell(.instance)
+                    return senderPath.description
                 }
                 // ~~~~ end of (imagine as) set by swift-distributed-actors library internally ~~~~~~
 
                 return .receiveMessage { message in
                     context.log.info("I got \(message)")
 
-                    p.ref.tell("Got: \(message)")
+                    probe.ref.tell("Got: \(message)")
                     return .same
                 }
             }
         )
 
         ref.tell("Hello world")
-        try p.expectMessage("Got: Hello world")
+        try probe.expectMessage("Got: Hello world")
         // try r.expectNoMessage(for: .milliseconds(100))
     }
 
-    func test_actorLogger_shouldNotRenderLazyMetadataIfLogIsUnderDefinedLogLevel() throws {
-        let p = self.testKit.makeTestProbe("p2", expecting: String.self)
-        let r = self.testKit.makeTestProbe("r2", expecting: Rendered.self)
+    internal func test_actorLogger_shouldNotRenderLazyMetadataIfLogIsUnderDefinedLogLevel() throws {
+        let senderPath: ActorPath = try ActorPath(root: "user")
+            .appending("hello").appending("deep").appending("path").appending("avoid-rendering-this-if-possible")
+        let probe: ActorTestProbe<String> = self.testKit.makeTestProbe("p2", expecting: String.self)
+        let resultProbe: ActorTestProbe<Rendered> = self.testKit.makeTestProbe("r2", expecting: Rendered.self)
 
-        let ref: _ActorRef<String> = try system._spawn(
+        let ref: ActorRef<String> = try system.spawn(
             "myName",
+
             .setup { context in
                 // ~~~~~~~ (imagine as) set by swift-distributed-actors library internally ~~~~~~~~~~
                 context.log[metadataKey: "senderPath"] = .lazyStringConvertible {
-                    r.ref.tell(.instance)
-                    return self.exampleSenderPath.description
+                    resultProbe.ref.tell(.instance)
+                    return senderPath.description
                 }
                 // ~~~~ end of (imagine as) set by swift-distributed-actors library internally ~~~~~~
 
@@ -78,28 +77,31 @@ final class ActorLoggingTests: SingleClusterSystemXCTestCase {
                     context.log.logLevel = .warning
                     context.log.info("I got \(message)")  // thus should not render any metadata
 
-                    p.ref.tell("Got: \(message)")
+                    probe.ref.tell("Got: \(message)")
                     return .same
                 }
             }
         )
 
         ref.tell("Hello world")
-        try p.expectMessage("Got: Hello world")
-        try r.expectNoMessage(for: .milliseconds(100))
+        try probe.expectMessage("Got: Hello world")
+        try resultProbe.expectNoMessage(for: .milliseconds(100))
     }
 
-    func test_actorLogger_shouldNotRenderALazyValueIfWeOverwriteItUsingLocalMetadata() throws {
-        let p = self.testKit.makeTestProbe("p2", expecting: String.self)
-        let r = self.testKit.makeTestProbe("r2", expecting: Rendered.self)
+    internal func test_actorLogger_shouldNotRenderALazyValueIfWeOverwriteItUsingLocalMetadata() throws {
+        let senderPath: ActorPath = try ActorPath(root: "user")
+            .appending("hello").appending("deep").appending("path").appending("avoid-rendering-this-if-possible")
+        let probe: ActorTestProbe<String> = self.testKit.makeTestProbe("p2", expecting: String.self)
+        let resultProbe: ActorTestProbe<Rendered> = self.testKit.makeTestProbe("r2", expecting: Rendered.self)
 
-        let ref: _ActorRef<String> = try system._spawn(
+        let ref: ActorRef<String> = try system.spawn(
             "myName",
+
             .setup { context in
                 // ~~~~~~~ (imagine as) set by swift-distributed-actors library internally ~~~~~~~~~~
                 context.log[metadataKey: "senderPath"] = .lazyStringConvertible {
-                    r.ref.tell(.instance)
-                    return self.exampleSenderPath.description
+                    resultProbe.ref.tell(.instance)
+                    return senderPath.description
                 }
                 // ~~~~ end of (imagine as) set by swift-distributed-actors library internally ~~~~~~
 
@@ -107,18 +109,14 @@ final class ActorLoggingTests: SingleClusterSystemXCTestCase {
                     // overwrite the metadata with a local one:
                     context.log.info("I got \(message)", metadata: ["senderPath": .string("/user/sender/pre-rendered")])
 
-                    p.ref.tell("Got: \(message)")
+                    probe.ref.tell("Got: \(message)")
                     return .same
                 }
             }
         )
 
         ref.tell("Hello world")
-        try p.expectMessage("Got: Hello world")
-        try r.expectNoMessage(for: .milliseconds(100))
+        try probe.expectMessage("Got: Hello world")
+        try resultProbe.expectNoMessage(for: .milliseconds(100))
     }
-}
-
-private enum Rendered: String, Codable {
-    case instance
 }

@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsConcurrencyHelpers
 import Foundation
@@ -22,14 +22,14 @@ import XCTest
 /// Base class to handle the repetitive setUp/tearDown code involved in most `ClusterSystem` requiring tests.
 open class SingleClusterSystemXCTestCase: ClusteredActorSystemsXCTestCase {
     public var system: ClusterSystem {
-        guard let node = self._nodes.first else {
+        guard let node = self.nodes.first else {
             fatalError("No system spawned!")
         }
         return node
     }
 
     public var eventLoopGroup: EventLoopGroup {
-        self.system._eventLoopGroup
+        self.system.eventLoopGroup
     }
 
     public var testKit: ActorTestKit {
@@ -39,7 +39,7 @@ open class SingleClusterSystemXCTestCase: ClusteredActorSystemsXCTestCase {
     private var actorStatsBefore: InspectKit.ActorStats = .init()
 
     public var logCapture: LogCapture {
-        guard let handler = self._logCaptures.first else {
+        guard let handler = self.logCaptures.first else {
             fatalError("No log capture installed!")
         }
         return handler
@@ -50,11 +50,10 @@ open class SingleClusterSystemXCTestCase: ClusteredActorSystemsXCTestCase {
         _ = await self.setUpNode(String(describing: type(of: self)))
     }
 
-    override open func tearDown() async throws {
-        try await super.tearDown()
-    }
-
-    override open func setUpNode(_ name: String, _ modifySettings: ((inout ClusterSystemSettings) -> Void)? = nil) async -> ClusterSystem {
+    override open func setUpNode(
+        _ name: String,
+        _ modifySettings: ((inout ClusterSystemSettings) -> Void)? = nil
+    ) async -> ClusterSystem {
         await super.setUpNode(name) { settings in
             settings.enabled = false
             modifySettings?(&settings)

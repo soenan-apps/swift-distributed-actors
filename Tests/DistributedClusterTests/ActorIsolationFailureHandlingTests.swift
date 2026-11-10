@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import Foundation
@@ -19,32 +19,35 @@ import XCTest
 
 @testable import DistributedCluster
 
-final class ActorIsolationFailureHandlingTests: SingleClusterSystemXCTestCase {
+internal final class ActorIsolationFailureHandlingTests: SingleClusterSystemXCTestCase {
     private enum SimpleTestError: Error {
         case simpleError(reason: String)
     }
 
-    enum SimpleProbeMessage: Equatable, _NotActuallyCodableMessage {
-        case spawned(child: _ActorRef<FaultyWorkerMessage>)
+    internal enum SimpleProbeMessage: Equatable, NotActuallyCodableMessage {
+        case spawned(child: ActorRef<FaultyWorkerMessage>)
         case echoing(message: String)
     }
 
-    enum FaultyWorkerMessage: _NotActuallyCodableMessage {
-        case work(n: Int, divideBy: Int)
+    internal enum FaultyWorkerMessage: NotActuallyCodableMessage {
+        case work(number: Int, divideBy: Int)
         case throwError(error: Error)
     }
 
-    enum WorkerError: Error {
+    internal enum WorkerError: Error {
         case error(code: Int)
     }
 
-    func faultyWorkerBehavior(probe pw: _ActorRef<Int>) -> _Behavior<FaultyWorkerMessage> {
+    internal let spawnFaultyWorkerCommand: String = "spawnFaultyWorker"
+
+    internal func faultyWorkerBehavior(probe workerProbe: ActorRef<Int>) -> Behavior<FaultyWorkerMessage> {
         .receive { context, message in
             context.log.info("Working on: \(message)")
             switch message {
-            case .work(let n, let divideBy):  // Fault handling is not implemented
-                pw.tell(n / divideBy)
+            case let .work(number, divideBy):  // Fault handling is not implemented
+                workerProbe.tell(number / divideBy)
                 return .same
+
             case .throwError(let error):
                 context.log.warning("Throwing as instructed, error: \(error)")
                 throw error
@@ -52,45 +55,57 @@ final class ActorIsolationFailureHandlingTests: SingleClusterSystemXCTestCase {
         }
     }
 
-    let spawnFaultyWorkerCommand = "spawnFaultyWorker"
-    func healthyBossBehavior(pm: _ActorRef<SimpleProbeMessage>, pw: _ActorRef<Int>) -> _Behavior<String> {
+    internal func healthyBossBehavior(
+        messageProbe: ActorRef<SimpleProbeMessage>,
+        workerProbe: ActorRef<Int>
+    ) -> Behavior<String> {
         .receive { context, message in
             switch message {
             case self.spawnFaultyWorkerCommand:
-                let worker = try context._spawn("faultyWorker", self.faultyWorkerBehavior(probe: pw))
-                pm.tell(.spawned(child: worker))
+                let worker: ActorRef<FaultyWorkerMessage> = try context.spawn(
+                    "faultyWorker",
+                    self.faultyWorkerBehavior(probe: workerProbe)
+                )
+                messageProbe.tell(.spawned(child: worker))
+
             default:
-                pm.tell(.echoing(message: message))
+                messageProbe.tell(.echoing(message: message))
             }
             return .same
         }
     }
 
-    func test_worker_crashOnlyWorkerOnPlainErrorThrow() throws {
-        let pm: ActorTestProbe<SimpleProbeMessage> = self.testKit.makeTestProbe("testProbe-boss-1")
-        let pw: ActorTestProbe<Int> = self.testKit.makeTestProbe("testProbeForWorker-1")
+    internal func test_worker_crashOnlyWorkerOnPlainErrorThrow() throws {
+        let messageProbe: ActorTestProbe<SimpleProbeMessage> = self.testKit.makeTestProbe("testProbe-boss-1")
+        let workerProbe: ActorTestProbe<Int> = self.testKit.makeTestProbe("testProbeForWorker-1")
 
-        let healthyBoss: _ActorRef<String> = try system._spawn("healthyBoss", self.healthyBossBehavior(pm: pm.ref, pw: pw.ref))
+        let healthyBoss: ActorRef<String> = try system.spawn(
+            "healthyBoss",
+            self.healthyBossBehavior(
+                messageProbe: messageProbe.ref,
+                workerProbe: workerProbe.ref
+            )
+        )
 
         // watch parent and see it spawn the worker:
-        pm.watch(healthyBoss)
+        messageProbe.watch(healthyBoss)
         healthyBoss.tell("spawnFaultyWorker")
-        guard case .spawned(let worker) = try pm.expectMessage() else { throw pm.error() }
+        guard case .spawned(let worker) = try messageProbe.expectMessage() else { throw messageProbe.error() }
 
         // watch the worker and see that it works correctly:
-        pw.watch(worker)
-        worker.tell(.work(n: 100, divideBy: 10))
-        try pw.expectMessage(10)
+        workerProbe.watch(worker)
+        worker.tell(.work(number: 100, divideBy: 10))
+        try workerProbe.expectMessage(10)
 
         // issue a message that will cause the worker to crash
         worker.tell(.throwError(error: WorkerError.error(code: 418)))  // BOOM!
 
         // the worker, should have terminated due to the error:
-        try pw.expectTerminated(worker)
+        try workerProbe.expectTerminated(worker)
 
         // even though the worker crashed, the parent is still alive (!)
-        let stillAlive = "still alive"
+        let stillAlive: String = "still alive"
         healthyBoss.tell(stillAlive)
-        try pm.expectMessage(.echoing(message: "still alive"))
+        try messageProbe.expectMessage(.echoing(message: "still alive"))
     }
 }

@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,43 +10,43 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import XCTest
 
 @testable import DistributedCluster
 
-class MPSCLinkedQueueTests: XCTestCase {
-    func test_dequeueWhenEmpty() {
-        let q = MPSCLinkedQueue<Int>()
+internal final class MPSCLinkedQueueTests: XCTestCase {
+    internal func test_dequeueWhenEmpty() {
+        let queue: MPSCLinkedQueue<Int> = MPSCLinkedQueue<Int>()
 
-        XCTAssertNil(q.dequeue())
+        XCTAssertNil(queue.dequeue())
     }
 
-    func test_enqueueDequeue() {
-        let q = MPSCLinkedQueue<Int>()
-        q.enqueue(1)
+    internal func test_enqueueDequeue() {
+        let queue: MPSCLinkedQueue<Int> = MPSCLinkedQueue<Int>()
+        queue.enqueue(1)
 
-        XCTAssertEqual(1, q.dequeue()!)
+        XCTAssertEqual(1, queue.dequeue())
     }
 
-    func test_concurrentEnqueueDequeue() throws {
-        let writerCount = 6
-        let messageCountPerWriter = 10000
-        let totalMessageCount = writerCount * messageCountPerWriter
-        let q = MPSCLinkedQueue<Int>()
+    internal func test_concurrentEnqueueDequeue() throws {
+        let writerCount: Int = 6
+        let messageCountPerWriter: Int = 10_000
+        let totalMessageCount: Int = writerCount * messageCountPerWriter
+        let queue: MPSCLinkedQueue<Int> = MPSCLinkedQueue<Int>()
 
         for _ in 1...writerCount {
-            _ = try _Thread {
-                for i in 0..<messageCountPerWriter {
-                    q.enqueue(i)
+            _ = try ClusterThread {
+                for index in 0..<messageCountPerWriter {
+                    queue.enqueue(index)
                 }
             }
         }
 
-        var dequeued = 0
+        var dequeued: Int = 0
         while dequeued < totalMessageCount {
-            if q.dequeue() != nil {
+            if queue.dequeue() != nil {
                 dequeued += 1
             }
         }

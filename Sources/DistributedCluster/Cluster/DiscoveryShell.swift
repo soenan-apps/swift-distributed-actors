@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,16 +10,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Logging
 import ServiceDiscovery
 
-final class DiscoveryShell {
-    enum Message: _NotActuallyCodableMessage {
+internal final class DiscoveryShell {
+    internal enum Message: NotActuallyCodableMessage {
         case listing(Set<Cluster.Endpoint>)
         case stop(CompletionReason?)
     }
+
+    internal static let name: String = "discovery"
+    internal static let naming: ActorNaming = .unique(DiscoveryShell.name)
 
     internal let settings: ServiceDiscoverySettings
     internal let cluster: ClusterShell.Ref
@@ -27,14 +30,8 @@ final class DiscoveryShell {
     private var subscription: CancellationToken?
     internal var previouslyDiscoveredNodes: Set<Cluster.Endpoint> = []
 
-    init(settings: ServiceDiscoverySettings, cluster: ClusterShell.Ref) {
-        self.settings = settings
-        self.cluster = cluster
-    }
-
-    var behavior: _Behavior<Message> {
+    internal var behavior: Behavior<Message> {
         .setup { context in
-            // FIXME: should have a behavior to bridge the async world...
             context.log.info("Initializing discovery: \(self.settings.implementation)")
             // Try to initialise clusterd if needed
             self.settings.initializeClusterd(context.system)
@@ -45,13 +42,13 @@ final class DiscoveryShell {
                     switch result {
                     case .success(let instances):
                         context.myself.tell(.listing(Set(instances)))
+
                     case .failure(let error):
                         context.log.debug("Service discovery failed: \(error)")
                     }
                 },
                 onComplete: { reason in
                     // if for some reason the subscription completes, we also terminate the discovery actor
-                    // TODO: would there be cases where we want to reconnect the discovery mechanism instead? (we could handle it here)
                     context.myself.tell(.stop(reason))
                 }
             )
@@ -60,8 +57,8 @@ final class DiscoveryShell {
         }
     }
 
-    private var ready: _Behavior<Message> {
-        _Behavior<Message>.receive { context, message in
+    private var ready: Behavior<Message> {
+        Behavior<Message>.receive { context, message in
             switch message {
             case .listing(let discoveredEndpoints):
                 self.onUpdatedListing(discoveredEndpoints: discoveredEndpoints, context: context)
@@ -70,22 +67,27 @@ final class DiscoveryShell {
             case .stop(let reason):
                 return self.stop(reason: reason, context: context)
             }
-        }.receiveSpecificSignal(_Signals._PostStop.self) { context, _ in
+        }.receiveSpecificSignal(Signals.PostStop.self) { context, _ in
             self.stop(reason: .cancellationRequested, context: context)
         }
     }
 
-    private func onUpdatedListing(discoveredEndpoints: Set<Cluster.Endpoint>, context: _ActorContext<Message>) {
+    internal init(settings: ServiceDiscoverySettings, cluster: ClusterShell.Ref) {
+        self.settings = settings
+        self.cluster = cluster
+    }
+
+    private func onUpdatedListing(discoveredEndpoints: Set<Cluster.Endpoint>, context: ActorContext<Message>) {
         context.log.trace(
             "Service discovery updated listing",
             metadata: [
                 "listing": Logger.MetadataValue.array(
                     Array(
-                        discoveredEndpoints.map {
-                            "\($0)"
+                        discoveredEndpoints.map { endpoint in
+                            "\(endpoint)"
                         }
                     )
-                )
+                ),
             ]
         )
         for newNode in discoveredEndpoints.subtracting(self.previouslyDiscoveredNodes) {
@@ -101,14 +103,9 @@ final class DiscoveryShell {
         self.previouslyDiscoveredNodes = discoveredEndpoints
     }
 
-    func stop(reason: CompletionReason?, context: _ActorContext<Message>) -> _Behavior<Message> {
+    internal func stop(reason: CompletionReason?, context: ActorContext<Message>) -> Behavior<Message> {
         context.log.info("Stopping cluster node discovery, reason: \(optional: reason)")
         self.subscription?.cancel()
         return .stop
     }
-}
-
-extension DiscoveryShell {
-    static let name: String = "discovery"
-    static let naming: _ActorNaming = .unique(DiscoveryShell.name)
 }

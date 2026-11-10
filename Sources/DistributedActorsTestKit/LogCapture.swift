@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsConcurrencyHelpers
 import XCTest
@@ -25,38 +25,68 @@ import struct Foundation.Date
 /// ### Warning
 /// This handler uses locks for each and every operation.
 public final class LogCapture {
-    private var _logs: [CapturedLogMessage] = []
-    private let lock = DistributedActorsConcurrencyHelpers.Lock()
+    /// Selects the log levels, actor paths, text, and metadata captured by a test.
+    public struct Settings {
+        /// Lowest captured severity.
+        public var minimumLogLevel: Logger.Level
 
-    let settings: Settings
-    private var captureLabel: String = ""
+        /// Filter and capture logs only from actors with the following path prefix
+        public var filterActorPaths: Set<String> = [""]
+        /// Do not capture log messages which include the following strings.
+        public var excludeActorPaths: Set<String> = []
 
-    public init(settings: Settings = .init()) {
-        self.settings = settings
-    }
+        /// Do not capture log messages which include the following strings.
+        public var excludeGrep: Set<String> = []
+        /// Capture only messages containing one of these strings when nonempty.
+        public var grep: Set<String> = []
 
-    public func logger(label: String) -> Logger {
-        self.captureLabel = label
-        return Logger(label: "LogCapture(\(label))", LogCaptureLogHandler(label: label, self))
-    }
+        /// Metadata keys omitted when printing captured logs.
+        public var ignoredMetadata: Set<String> = [
+            "cluster/node"
+        ]
 
-    func append(_ log: CapturedLogMessage) {
-        self.lock.withLockVoid {
-            self._logs.append(log)
+        /// Creates settings that capture every log message.
+        public init() {
+            self.minimumLogLevel = .trace
         }
     }
 
+    private var _logs: [CapturedLogMessage] = []
+    private let lock: DistributedActorsConcurrencyHelpers.Lock = DistributedActorsConcurrencyHelpers.Lock()
+
+    internal let settings: Settings
+    private var captureLabel: String = ""
+
+    /// Snapshot of all captured messages.
     public var logs: [CapturedLogMessage] {
         self.lock.withLock {
             self._logs
         }
     }
 
+    /// Snapshot of captured messages marked as dead letters.
     public var deadLetterLogs: [CapturedLogMessage] {
         self.lock.withLock {
-            self._logs.filter {
-                $0.metadata?.keys.contains("deadLetter") ?? false
+            self._logs.filter { message in
+                message.metadata?.keys.contains("deadLetter") ?? false
             }
+        }
+    }
+
+    /// Creates a capture with the supplied filters.
+    public init(settings: Settings = .init()) {
+        self.settings = settings
+    }
+
+    /// Returns a logger that appends to this capture.
+    public func logger(label: String) -> Logger {
+        self.captureLabel = label
+        return Logger(label: "LogCapture(\(label))", LogCaptureLogHandler(label: label, self))
+    }
+
+    internal func append(_ log: CapturedLogMessage) {
+        self.lock.withLockVoid {
+            self._logs.append(log)
         }
     }
 
@@ -73,49 +103,25 @@ public final class LogCapture {
         line: UInt = #line
     ) throws -> CapturedLogMessage {
         try testKit.eventually(within: within, file: file, line: line) {
-            let logs = self.logs
-            guard let found = logs.first(where: { log in "\(log)".contains(text) }) else {
+            let capturedLogs: [CapturedLogMessage] = self.logs
+            guard let found = capturedLogs.first(where: { log in "\(log)".contains(text) }) else {
                 throw TestError("Logs did not contain [\(text)].")
             }
 
             return found
         }
     }
-}
 
-extension LogCapture {
-    public struct Settings {
-        public var minimumLogLevel: Logger.Level = .trace
-
-        /// Filter and capture logs only from actors with the following path prefix
-        public var filterActorPaths: Set<String> = [""]
-        /// Do not capture log messages which include the following strings.
-        public var excludeActorPaths: Set<String> = []
-
-        /// Do not capture log messages which include the following strings.
-        public var excludeGrep: Set<String> = []
-        public var grep: Set<String> = []
-
-        public var ignoredMetadata: Set<String> = [
-            "cluster/node"
-        ]
-
-        public init() {}
-    }
-}
-
-// ==== ----------------------------------------------------------------------------------------------------------------
-// MARK: XCTest integrations and helpers
-
-extension LogCapture {
+    /// Prints captured logs if the supplied test run failed.
     public func printIfFailed(_ testRun: XCTestRun?) {
         if let failureCount = testRun?.failureCount, failureCount > 0 {
-            print("------------------------------------------------------------------------------------------------------------------------")
+            print(String(repeating: "-", count: 120))
             self.printLogs()
-            print("========================================================================================================================")
+            print(String(repeating: "=", count: 120))
         }
     }
 
+    /// Prints captured logs and filtered metadata for failure diagnostics.
     public func printLogs() {
         for log in self.logs {
             var metadataString: String = ""
@@ -135,19 +141,20 @@ extension LogCapture {
                 if !metadata.isEmpty {
                     metadataString = "\n"
                     for key in metadata.keys.sorted() {
-                        let value: Logger.MetadataValue = metadata[key]!
-                        let valueDescription = self.prettyPrint(metadata: value)
+                        guard let value = metadata[key] else {
+                            preconditionFailure("Sorted metadata key must be present")
+                        }
+                        let valueDescription: String = self.prettyPrint(metadata: value)
 
-                        var allString = "\n\"\(key)\": \(valueDescription)"
+                        var allString: String = "\n\"\(key)\": \(valueDescription)"
                         if allString.contains("\n") {
                             allString = String(
                                 allString.split(separator: "\n").map { valueLine in
                                     if valueLine.starts(with: "// ") {
                                         return "[captured] [\(self.captureLabel)] \(valueLine)\n"
-                                    } else {
-                                        return "[captured] [\(self.captureLabel)] // \(valueLine)\n"
                                     }
-                                }.joined(separator: "")
+                                    return "[captured] [\(self.captureLabel)] // \(valueLine)\n"
+                                }.joined()
                             )
                         }
                         metadataString.append(allString)
@@ -155,131 +162,49 @@ extension LogCapture {
                     metadataString = String(metadataString.dropLast(1))
                 }
             }
-            let date = ActorOriginLogHandler._createSimpleFormatter().string(from: log.date)
-            let file = log.file.split(separator: "/").last ?? ""
-            let line = log.line
-            print("[captured] [\(self.captureLabel)] \(date) \(log.level) \(actorIdentifier) [\(file):\(line)] \(log.message)\(metadataString)")
+            let date: String = ActorOriginLogHandler.createSimpleFormatter().string(from: log.date)
+            let file: Substring = log.file.split(separator: "/").last ?? ""
+            let line: UInt = log.line
+            print(
+                "[captured] [\(self.captureLabel)] \(date) \(log.level) \(actorIdentifier) "
+                    + "[\(file):\(line)] \(log.message)\(metadataString)"
+            )
         }
     }
 
     internal func prettyPrint(metadata: Logger.MetadataValue) -> String {
-        let CONSOLE_RESET = "\u{001B}[0;0m"
-        let CONSOLE_BOLD = "\u{001B}[1m"
+        let consoleReset: String = "\u{001B}[0;0m"
+        let consoleBold: String = "\u{001B}[1m"
 
-        var valueDescription = ""
+        var valueDescription: String = ""
         switch metadata {
         case .string(let string):
             valueDescription = string
+
         case .stringConvertible(let convertible as CustomPrettyStringConvertible):
             valueDescription = convertible.prettyDescription
+
         case .stringConvertible(let convertible):
             valueDescription = convertible.description
+
         case .array(let array):
             valueDescription = "\n  \(array.map { "\($0)" }.joined(separator: "\n  "))"
-        case .dictionary(let metadata):
-            for k in metadata.keys {
-                valueDescription += "\(CONSOLE_BOLD)\(k)\(CONSOLE_RESET): \(self.prettyPrint(metadata: metadata[k]!))"
+
+        case .dictionary(let dictionary):
+            for key in dictionary.keys {
+                guard let value = dictionary[key] else {
+                    preconditionFailure("Dictionary key must be present")
+                }
+                valueDescription += "\(consoleBold)\(key)\(consoleReset): \(self.prettyPrint(metadata: value))"
             }
         }
 
         return valueDescription
     }
-}
 
-public struct CapturedLogMessage {
-    public let date: Date
-    public let level: Logger.Level
-    public var message: Logger.Message
-    public var metadata: Logger.Metadata?
-    public let file: String
-    public let function: String
-    public let line: UInt
-}
-
-// ==== ----------------------------------------------------------------------------------------------------------------
-// MARK: LogCapture LogHandler
-
-struct LogCaptureLogHandler: LogHandler {
-    let label: String
-    let capture: LogCapture
-
-    init(label: String, _ capture: LogCapture) {
-        self.label = label
-        self.capture = capture
-    }
-
-    public func log(event: LogEvent) {
-        self.log(
-            level: event.level,
-            message: event.message,
-            metadata: event.metadata,
-            source: event.source,
-            file: event.file,
-            function: event.function,
-            line: event.line
-        )
-    }
-
-    public func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?, source: String, file: String, function: String, line: UInt) {
-        let actorPath = self.metadata["actor/path"].map { "\($0)" } ?? ""
-
-        guard
-            self.capture.settings.filterActorPaths.contains(where: { path in
-                if path == "" {  // TODO(swift): rdar://98691039 String.starts(with:) has a bug when given an empty string, so we have to avoid it
-                    return true
-                }
-
-                return actorPath.starts(with: path)
-            })
-        else {
-            return  // ignore this actor's logs, it was filtered out
-        }
-        guard !self.capture.settings.excludeActorPaths.contains(actorPath) else {
-            return  // actor was excluded explicitly
-        }
-        guard self.capture.settings.grep.isEmpty || self.capture.settings.grep.contains(where: { "\(message)".contains($0) }) else {
-            return  // log was included explicitly
-        }
-        guard !self.capture.settings.excludeGrep.contains(where: { "\(message)".contains($0) }) else {
-            return  // log was excluded explicitly
-        }
-
-        let date = Date()
-        var _metadata: Logger.Metadata = self.metadata
-        _metadata.merge(metadata ?? [:], uniquingKeysWith: { _, r in r })
-        _metadata["label"] = "\(self.label)"
-
-        self.capture.append(CapturedLogMessage(date: date, level: level, message: message, metadata: _metadata, file: file, function: function, line: line))
-    }
-
-    public subscript(metadataKey metadataKey: String) -> Logger.Metadata.Value? {
-        get {
-            self.metadata[metadataKey]
-        }
-        set {
-            self.metadata[metadataKey] = newValue
-        }
-    }
-
-    public var metadata: Logging.Logger.Metadata = [:]
-
-    public var logLevel: Logger.Level {
-        get {
-            self.capture.settings.minimumLogLevel
-        }
-        set {
-            // ignore, we always collect all logs
-        }
-    }
-}
-
-// ==== ----------------------------------------------------------------------------------------------------------------
-// MARK: Should matchers
-
-extension LogCapture {
-    /// Asserts that a message matching the query requirements was captures *already* (without waiting for it to appear)
+    /// Asserts that a message matching the query requirements was captured *already* (without waiting for it to appear)
     ///
-    /// - Parameter message: can be surrounded like `*what*` to query as a "contains" rather than an == on the captured logs.
+    /// - Parameter message: Surround with `*what*` to search by containment instead of equality.
     @discardableResult
     public func shouldContain(
         prefix: String? = nil,
@@ -293,81 +218,84 @@ extension LogCapture {
         line: UInt = #line,
         column: UInt = #column
     ) throws -> CapturedLogMessage {
-        precondition(prefix != nil || message != nil || grep != nil || level != nil || level != nil || expectedFile != nil, "At least one query parameter must be not `nil`!")
-        let callSite = CallSiteInfo(file: file, line: line, column: column, function: #function)
+        precondition(
+            prefix != nil || message != nil || grep != nil || level != nil || expectedFile != nil,
+            "At least one query parameter must be not `nil`!"
+        )
+        let callSite: CallSiteInfo = CallSiteInfo(file: file, line: line, column: column, function: #function)
 
-        let found = self.logs.lazy
-            .filter { log in
-                if let expected = message {
-                    if expected.first == "*", expected.last == "*" {
-                        return "\(log.message)".contains(expected.dropFirst().dropLast())
-                    } else {
-                        return expected == "\(log.message)"
-                    }
-                } else {
-                    return true
-                }
-            }.filter { log in
-                if let expected = prefix {
-                    return "\(log.message)".starts(with: expected)
-                } else {
-                    return true
-                }
-            }.filter { log in
-                if let expected = grep {
-                    return "\(log)".contains(expected)
-                } else {
-                    return true
-                }
-            }.filter { log in
-                if let expected = level {
-                    return log.level == expected
-                } else {
-                    return true
-                }
-            }.filter { log in
-                if let expected = expectedFile {
-                    return expected == "\(log.file)"
-                } else {
-                    return true
-                }
-            }.filter { log in
-                if expectedLine > -1 {
-                    return log.line == expectedLine
-                } else {
-                    return true
-                }
-            }.first
+        let found: CapturedLogMessage? = self.findLog(
+            prefix: prefix,
+            message: message,
+            grep: grep,
+            level: level,
+            expectedFile: expectedFile,
+            expectedLine: expectedLine
+        )
 
         if let found = found {
             return found
-        } else {
-            let query = [
-                prefix.map { "prefix: \"\($0)\"" },
-                message.map { "message: \"\($0)\"" },
-                grep.map { "grep: \"\($0)\"" },
-                level.map { "level: \($0)" } ?? "",
-                expectedFile.map { "expectedFile: \"\($0)\"" },
-                (expectedLine > -1 ? Optional(expectedLine) : nil).map { "expectedLine: \($0)" },
-            ].compactMap { $0 }
-                .joined(separator: ", ")
+        }
+        let query: String = [
+            prefix.map { "prefix: \"\($0)\"" },
+            message.map { "message: \"\($0)\"" },
+            grep.map { "grep: \"\($0)\"" },
+            level.map { "level: \($0)" } ?? "",
+            expectedFile.map { "expectedFile: \"\($0)\"" },
+            (expectedLine > -1 ? Optional(expectedLine) : nil).map { "expectedLine: \($0)" },
+        ].compactMap { $0 }
+            .joined(separator: ", ")
 
-            let message = """
-                Did not find expected log, matching query: 
-                    [\(query)]
-                in captured logs at \(file):\(line)
-                """
-            let callSiteError = callSite.error(message)
-            if failTest {
-                XCTFail(message, file: callSite.file, line: callSite.line)
+        let failureMessage: String = """
+            Did not find expected log, matching query:
+                [\(query)]
+            in captured logs at \(file):\(line)
+            """
+        let callSiteError: Error = callSite.error(failureMessage)
+        if failTest {
+            XCTFail(failureMessage, file: callSite.file, line: callSite.line)
+        }
+        throw callSiteError
+    }
+
+    private func findLog(
+        prefix: String?,
+        message: String?,
+        grep: String?,
+        level: Logger.Level?,
+        expectedFile: String?,
+        expectedLine: Int = -1
+    ) -> CapturedLogMessage? {
+        self.logs.first { log in
+            if let expected = message {
+                if expected.first == "*", expected.last == "*" {
+                    guard "\(log.message)".contains(expected.dropFirst().dropLast()) else {
+                        return false
+                    }
+                } else if expected != "\(log.message)" {
+                    return false
+                }
             }
-            throw callSiteError
+            if let prefix, !"\(log.message)".starts(with: prefix) {
+                return false
+            }
+            if let grep, !"\(log)".contains(grep) {
+                return false
+            }
+            if let level, log.level != level {
+                return false
+            }
+            if let expectedFile, expectedFile != log.file {
+                return false
+            }
+            return expectedLine <= -1 || log.line == expectedLine
         }
     }
 
+    /// Returns messages matching text and all specified metadata values.
     public func grep(_ string: String, metadata metadataQuery: [String: String] = [:]) -> [CapturedLogMessage] {
-        self.logs.filter {
-            guard "\($0)".contains(string) else {
+        self.logs.filter { log in
+            guard "\(log)".contains(string) else {
                 // mismatch, exclude it
                 return false
             }
@@ -376,7 +304,7 @@ extension LogCapture {
                 return true
             }
 
-            let metas = $0.metadata ?? [:]
+            let metas: Logger.Metadata = log.metadata ?? [:]
             for (queryKey, queryValue) in metadataQuery {
                 if let value = metas[queryKey] {
                     if queryValue != "\(value)" {
@@ -392,4 +320,5 @@ extension LogCapture {
             return true
         }
     }
+
 }

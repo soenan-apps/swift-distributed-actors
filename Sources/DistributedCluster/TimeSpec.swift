@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import NIO
 
@@ -25,37 +25,34 @@ import Musl
 
 // MARK: utilities to convert between Duration and C timespec
 
-private let NANOS = 1_000_000_000
+private let kNanosecondsPerSecond: Int = 1_000_000_000
 
-/// Not intended for general use. TODO: Make internal if possible.
+/// C time representation used by duration conversion.
 @usableFromInline
 internal typealias TimeSpec = timespec
 
-// TODO: move to Time.swift?
-
-/// Not intended for general use. TOD
 extension TimeSpec {
     @usableFromInline
     internal static func from(duration: Duration) -> timespec {
-        let seconds = Int(duration.nanoseconds) / NANOS
-        let nanos = Int(duration.nanoseconds) % NANOS
-        var time = timespec()
+        let seconds: Int = Int(duration.nanoseconds) / kNanosecondsPerSecond
+        let nanos: Int = Int(duration.nanoseconds) % kNanosecondsPerSecond
+        var time: timespec = timespec()
         time.tv_sec = seconds
         time.tv_nsec = nanos
         return time
     }
 
     @usableFromInline
-    internal static func + (a: timespec, b: timespec) -> timespec {
-        let totalNanos = a.toNanos() + b.toNanos()
-        var result = timespec()
-        result.tv_sec = Int(totalNanos / Int64(NANOS))
-        result.tv_nsec = Int(totalNanos % Int64(NANOS))
+    internal static func + (lhs: timespec, rhs: timespec) -> timespec {
+        let totalNanos: Int64 = lhs.toNanos() + rhs.toNanos()
+        var result: timespec = timespec()
+        result.tv_sec = Int(totalNanos / Int64(kNanosecondsPerSecond))
+        result.tv_nsec = Int(totalNanos % Int64(kNanosecondsPerSecond))
         return result
     }
 
     @usableFromInline
     internal func toNanos() -> Int64 {
-        Int64(self.tv_nsec) + (Int64(self.tv_sec) * Int64(NANOS))
+        Int64(self.tv_nsec) + (Int64(self.tv_sec) * Int64(kNanosecondsPerSecond))
     }
 }

@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Distributed
 import DistributedActorsTestKit
@@ -19,15 +19,28 @@ import XCTest
 @testable import DistributedCluster
 @testable import Logging
 
-final class DeadLetterTests: SingleClusterSystemXCTestCase {
+private distributed actor Greeter {
+    typealias ActorSystem = ClusterSystem
+
+    distributed func greet(name: String) -> String {
+        "hello \(name)!"
+    }
+}
+internal final class DeadLetterTests: SingleClusterSystemXCTestCase {
     // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: DeadLetterOffice tests
 
-    func test_deadLetters_logWithSourcePosition() throws {
-        let log = self.logCapture.logger(label: "/dead/letters")
+    internal func test_deadLetters_logWithSourcePosition() throws {
+        let log: Logger = self.logCapture.logger(label: "/dead/letters")
 
-        let id = try ActorID(local: self.system.cluster.node, path: ActorPath._user.appending("someone"), incarnation: .random())
-        let office = DeadLetterOffice(log, id: id, system: system)
+        let id: ActorID = try ActorID(
+            local: self.system.cluster.node,
+            path: ActorPath.userRoot.appending(
+                "someone"
+            ),
+            incarnation: .random()
+        )
+        let office: DeadLetterOffice = DeadLetterOffice(log, id: id, system: system)
 
         office.deliver("Hello")
 
@@ -37,18 +50,19 @@ final class DeadLetterTests: SingleClusterSystemXCTestCase {
     // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: ClusterSystem integrated tests
 
-    func test_sendingToTerminatedActor_shouldResultInDeadLetter() throws {
-        let ref: _ActorRef<String> = try self.system._spawn(
+    internal func test_sendingToTerminatedActor_shouldResultInDeadLetter() throws {
+        let ref: ActorRef<String> = try self.system.spawn(
             "ludwig",
+
             .receiveMessage { _ in
                 .stop
             }
         )
-        let p = self.testKit.makeTestProbe(expecting: Never.self)
+        let probe: ActorTestProbe<Never> = self.testKit.makeTestProbe(expecting: Never.self)
 
-        p.watch(ref)
+        probe.watch(ref)
         ref.tell("terminate please")
-        try p.expectTerminated(ref)
+        try probe.expectTerminated(ref)
 
         ref.tell("Are you still there?")
 
@@ -56,22 +70,23 @@ final class DeadLetterTests: SingleClusterSystemXCTestCase {
         try self.logCapture.awaitLogContaining(self.testKit, text: "/user/ludwig")
     }
 
-    func test_askingTerminatedActor_shouldResultInDeadLetter() async throws {
-        let ref: _ActorRef<String> = try self.system._spawn(
+    internal func test_askingTerminatedActor_shouldResultInDeadLetter() async throws {
+        let ref: ActorRef<String> = try self.system.spawn(
             "ludwig",
+
             .receiveMessage { _ in
                 .stop
             }
         )
-        let p = self.testKit.makeTestProbe(expecting: Never.self)
+        let probe: ActorTestProbe<Never> = self.testKit.makeTestProbe(expecting: Never.self)
 
-        p.watch(ref)
+        probe.watch(ref)
         ref.tell("terminate please")
-        try p.expectTerminated(ref)
+        try probe.expectTerminated(ref)
 
         sleep(1)
 
-        let answer = ref.ask(for: String.self, timeout: .milliseconds(100)) { replyTo in
+        let answer: AskResponse<String> = ref.ask(timeout: .milliseconds(100)) { replyTo in
             "This is a question, reply to \(replyTo)"
         }
 
@@ -83,27 +98,27 @@ final class DeadLetterTests: SingleClusterSystemXCTestCase {
         try self.logCapture.awaitLogContaining(self.testKit, text: "/user/ludwig")
     }
 
-    func test_remoteCallTerminatedTarget_shouldResultInDeadLetter() async throws {
-        let local = await setUpNode("local") { settings in
+    internal func test_remoteCallTerminatedTarget_shouldResultInDeadLetter() async throws {
+        let local: ClusterSystem = await setUpNode("local") { settings in
             settings.enabled = true
         }
-        let remote = await setUpNode("remote") { settings in
+        let remote: ClusterSystem = await setUpNode("remote") { settings in
             settings.enabled = true
         }
         local.cluster.join(endpoint: remote.cluster.endpoint)
 
         var greeter: Greeter? = Greeter(actorSystem: local)
-        let greeterID = greeter!.id
-        let remoteGreeterRef = try Greeter.resolve(id: greeterID, using: remote)
+        let greeterID: ActorID = try XCTUnwrap(greeter).id
+        let remoteGreeterRef: Greeter = try Greeter.resolve(id: greeterID, using: remote)
 
-        let testKit = self.testKit(local)
-        let p = testKit.makeTestProbe(expecting: String.self)
-        await p.watch(greeter!)
+        let testKit: ActorTestKit = self.testKit(local)
+        let probe: ActorTestProbe<String> = testKit.makeTestProbe(expecting: String.self)
+        try await probe.watch(XCTUnwrap(greeter))
 
         greeter = nil
-        try await p.expectTermination(of: greeterID)
+        try await probe.expectTermination(of: greeterID)
 
-        let error = try await shouldThrow {
+        let error: Error = try await shouldThrow {
             _ = try await remoteGreeterRef.greet(name: "world")
         }
 
@@ -114,30 +129,22 @@ final class DeadLetterTests: SingleClusterSystemXCTestCase {
         try self.capturedLogs(of: local).awaitLogContaining(self.testKit, text: "was not delivered to")
     }
 
-    func test_resolveTerminatedTarget_shouldResultInDeadLetter() async throws {
+    internal func test_resolveTerminatedTarget_shouldResultInDeadLetter() async throws {
         var greeter: Greeter? = Greeter(actorSystem: self.system)
-        let greeterID = greeter!.id
+        let greeterID: ActorID = try XCTUnwrap(greeter).id
 
-        let p = self.testKit.makeTestProbe(expecting: String.self)
-        await p.watch(greeter!)
+        let probe: ActorTestProbe<String> = self.testKit.makeTestProbe(expecting: String.self)
+        try await probe.watch(XCTUnwrap(greeter))
 
         greeter = nil
-        try await p.expectTermination(of: greeterID)
+        try await probe.expectTermination(of: greeterID)
 
-        let error = try shouldThrow {
+        let error: Error = try shouldThrow {
             _ = try self.system.resolve(id: greeterID, as: Greeter.self)
         }
 
         guard error is DeadLetterError else {
             throw self.testKit.fail("Expected DeadLetterError, got \(error)")
         }
-    }
-}
-
-private distributed actor Greeter {
-    typealias ActorSystem = ClusterSystem
-
-    distributed func greet(name: String) -> String {
-        "hello \(name)!"
     }
 }

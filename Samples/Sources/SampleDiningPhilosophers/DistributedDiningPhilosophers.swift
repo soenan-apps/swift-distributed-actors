@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,31 +10,33 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedCluster
 
-final class DistributedDiningPhilosophers {
+internal final class DistributedDiningPhilosophers {
     private var forks: [Fork] = []
     private var philosophers: [Philosopher] = []
 
-    func run(for duration: Duration) async throws {
-        let systemA = await ClusterSystem("Node-A") { settings in
-            settings.bindPort = 1111
+    internal func run(for duration: Duration) async throws {
+        let systemA: ClusterSystem = await ClusterSystem("Node-A") { settings in
+            settings.bindPort = 1_111
         }
-        let systemB = await ClusterSystem("Node-B") { settings in
-            settings.bindPort = 2222
+
+        let systemB: ClusterSystem = await ClusterSystem("Node-B") { settings in
+            settings.bindPort = 2_222
             settings.logging.logLevel = .error
         }
-        let systemC = await ClusterSystem("Node-C") { settings in
-            settings.bindPort = 3333
+
+        let systemC: ClusterSystem = await ClusterSystem("Node-C") { settings in
+            settings.bindPort = 3_333
             settings.logging.logLevel = .error
         }
-        let systems = [systemA, systemB, systemC]
+
+        let systems: [ClusterSystem] = [systemA, systemB, systemC]
 
         print("~~~~~~~ started \(systems.count) actor systems ~~~~~~~")
 
-        // TODO: Joining to be simplified by having "seed nodes" (that a node should join)
         systemA.cluster.join(endpoint: systemB.settings.endpoint)
         systemA.cluster.join(endpoint: systemC.settings.endpoint)
         systemC.cluster.join(endpoint: systemB.settings.endpoint)
@@ -46,13 +48,13 @@ final class DistributedDiningPhilosophers {
 
         // prepare 5 forks, the resources, that the philosophers will compete for:
         // Node A
-        let fork1 = Fork(name: "fork-1", actorSystem: systemA)
+        let fork1: Fork = Fork(name: "fork-1", actorSystem: systemA)
         // Node B
-        let fork2 = Fork(name: "fork-2", actorSystem: systemB)
-        let fork3 = Fork(name: "fork-3", actorSystem: systemB)
+        let fork2: Fork = Fork(name: "fork-2", actorSystem: systemB)
+        let fork3: Fork = Fork(name: "fork-3", actorSystem: systemB)
         // Node C
-        let fork4 = Fork(name: "fork-4", actorSystem: systemC)
-        let fork5 = Fork(name: "fork-5", actorSystem: systemC)
+        let fork4: Fork = Fork(name: "fork-4", actorSystem: systemC)
+        let fork5: Fork = Fork(name: "fork-5", actorSystem: systemC)
         self.forks = [fork1, fork2, fork3, fork4, fork5]
 
         // 5 philosophers, sitting in a circle, with the forks between them:
@@ -71,16 +73,15 @@ final class DistributedDiningPhilosophers {
     }
 
     private func ensureCluster(_ systems: [ClusterSystem], within: Duration) async throws {
-        let nodes = Set(systems.map(\.settings.bindNode))
+        let nodes: Set<Cluster.Node> = Set(systems.map(\.settings.bindNode))
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             for system in systems {
                 group.addTask {
-                    try await system.cluster.waitFor(nodes, .up, within: within)
+                    try await system.cluster.waitFor(nodes, .operational, within: within)
                 }
             }
-            // loop explicitly to propagagte any error that might have been thrown
-            for try await _ in group {}
+            try await group.waitForAll()
         }
     }
 }

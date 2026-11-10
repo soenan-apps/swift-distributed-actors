@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,98 +10,109 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import XCTest
 
 @testable import DistributedCluster
 
-final class TimeoutBasedDowningInstanceTests: XCTestCase {
-    var instance: TimeoutBasedDowningStrategy!
+internal final class TimeoutBasedDowningInstanceTests: XCTestCase {
+    private lazy var instance: TimeoutBasedDowningStrategy = .init(.default, selfNode: self.selfNode)
 
-    let selfNode = Cluster.Node(endpoint: Cluster.Endpoint(systemName: "Test", host: "localhost", port: 8888), nid: .random())
-    lazy var selfMember = Cluster.Member(node: self.selfNode, status: .up)
+    private let selfNode: Cluster.Node =
+        Cluster.Node(endpoint: Cluster.Endpoint(systemName: "Test", host: "localhost", port: 8_888), nid: .random())
+    private lazy var selfMember: Cluster.Member = Cluster.Member(node: self.selfNode, status: .operational)
 
-    let otherNode = Cluster.Node(endpoint: Cluster.Endpoint(systemName: "Test", host: "localhost", port: 9999), nid: .random())
-    lazy var otherMember = Cluster.Member(node: self.otherNode, status: .up)
+    private let otherNode: Cluster.Node =
+        Cluster.Node(endpoint: Cluster.Endpoint(systemName: "Test", host: "localhost", port: 9_999), nid: .random())
+    private lazy var otherMember: Cluster.Member = Cluster.Member(node: self.otherNode, status: .operational)
 
-    let yetAnotherNode = Cluster.Node(endpoint: Cluster.Endpoint(systemName: "Test", host: "localhost", port: 2222), nid: .random())
-    lazy var yetAnotherMember = Cluster.Member(node: self.yetAnotherNode, status: .up)
+    private let yetAnotherNode: Cluster.Node =
+        Cluster.Node(endpoint: Cluster.Endpoint(systemName: "Test", host: "localhost", port: 2_222), nid: .random())
+    private lazy var yetAnotherMember: Cluster.Member = Cluster.Member(node: self.yetAnotherNode, status: .operational)
 
-    let nonMemberNode = Cluster.Node(endpoint: Cluster.Endpoint(systemName: "Test", host: "localhost", port: 1111), nid: .random())
-    lazy var nonMember = Cluster.Member(node: self.nonMemberNode, status: .up)
+    private let nonMemberNode: Cluster.Node =
+        Cluster.Node(endpoint: Cluster.Endpoint(systemName: "Test", host: "localhost", port: 1_111), nid: .random())
+    private lazy var nonMember: Cluster.Member = Cluster.Member(node: self.nonMemberNode, status: .operational)
 
-    override func setUp() {
+    override internal func setUp() {
         self.instance = TimeoutBasedDowningStrategy(.default, selfNode: self.selfNode)
     }
 
-    // ==== ----------------------------------------------------------------------------------------------------------------
+    override internal func tearDown() {
+        self.instance.membership = .empty
+        self.instance.unreachableMembers.removeAll()
+        self.instance.pendingDownMembers.removeAll()
+        super.tearDown()
+    }
+
+    // ==== --------------------------------------------------------------------------------------------------------
     // MARK: onLeaderChange
 
-    func test_onLeaderChange_whenNotLeaderAndNewLeaderIsSelfAddress_shouldBecomeLeader() throws {
+    internal func test_onLeaderChange_whenNotLeaderAndNewLeaderIsSelfAddress_shouldBecomeLeader() throws {
         self.instance.isLeader.shouldBeFalse()
-        let directive = try self.instance.onLeaderChange(to: self.selfMember)
-        // when no nodes are pending to be downed, the directive should be `.none`
-        guard case .none = directive.underlying else {
-            throw TestError("Expected directive to be .none")
+        let directive: DowningStrategyDirective = try self.instance.onLeaderChange(to: self.selfMember)
+        // when no nodes are pending to be downed, the directive should be `.unchanged`
+        guard case .unchanged = directive.underlying else {
+            throw TestError("Expected directive to be .unchanged")
         }
         self.instance.isLeader.shouldBeTrue()
     }
 
     // FIXME: has to be changed a bit when downing moved to subscribing to Cluster.MembershipChange events
-    func test_onLeaderChange_whenNotLeaderAndNewLeaderIsOtherAddress_shouldNotBecomeLeader() throws {
+    internal func test_onLeaderChange_whenNotLeaderAndNewLeaderIsOtherAddress_shouldNotBecomeLeader() throws {
         self.instance.isLeader.shouldBeFalse()
 
         _ = self.instance.membership.join(self.otherNode)
-        let directive = try self.instance.onLeaderChange(to: self.otherMember)
-        // we the node does not become the leader, the directive should be `.none`
-        guard case .none = directive.underlying else {
-            throw TestError("Expected directive to be .none")
+        let directive: DowningStrategyDirective = try self.instance.onLeaderChange(to: self.otherMember)
+        // we the node does not become the leader, the directive should be `.unchanged`
+        guard case .unchanged = directive.underlying else {
+            throw TestError("Expected directive to be .unchanged")
         }
         self.instance.isLeader.shouldBeFalse()
     }
 
-    func test_onLeaderChange_whenLeaderAndNewLeaderIsOtherAddress_shouldLoseLeadership() throws {
+    internal func test_onLeaderChange_whenLeaderAndNewLeaderIsOtherAddress_shouldLoseLeadership() throws {
         _ = self.instance.membership.join(self.selfNode)
         _ = self.instance.membership.join(self.otherNode)
 
         _ = try self.instance.onLeaderChange(to: self.selfMember)
         self.instance.isLeader.shouldBeTrue()
-        let directive = try self.instance.onLeaderChange(to: self.otherMember)
-        // when losing leadership, the directive should be `.none`
-        guard case .none = directive.underlying else {
-            throw TestError("Expected directive to be .none")
+        let directive: DowningStrategyDirective = try self.instance.onLeaderChange(to: self.otherMember)
+        // when losing leadership, the directive should be `.unchanged`
+        guard case .unchanged = directive.underlying else {
+            throw TestError("Expected directive to be .unchanged")
         }
         self.instance.isLeader.shouldBeFalse()
     }
 
-    func test_onLeaderChange_whenLeaderAndNewLeaderIsSelfAddress_shouldStayLeader() throws {
+    internal func test_onLeaderChange_whenLeaderAndNewLeaderIsSelfAddress_shouldStayLeader() throws {
         _ = try self.instance.membership.applyLeadershipChange(to: self.selfMember)
         self.instance.isLeader.shouldBeTrue()
         _ = try self.instance.onLeaderChange(to: self.selfMember)
         self.instance.isLeader.shouldBeTrue()
     }
 
-    func test_onLeaderChange_whenLeaderAndNoNewLeaderIsElected_shouldLoseLeadership() throws {
+    internal func test_onLeaderChange_whenLeaderAndNoNewLeaderIsElected_shouldLoseLeadership() throws {
         _ = try self.instance.membership.applyLeadershipChange(to: self.selfMember)
         self.instance.isLeader.shouldBeTrue()
         _ = try self.instance.onLeaderChange(to: nil)
         self.instance.isLeader.shouldBeFalse()
     }
 
-    func test_onLeaderChange_whenNotLeaderAndNoNewLeaderIsElected_shouldNotBecomeLeader() throws {
+    internal func test_onLeaderChange_whenNotLeaderAndNoNewLeaderIsElected_shouldNotBecomeLeader() throws {
         self.instance.isLeader.shouldBeFalse()
         _ = try self.instance.onLeaderChange(to: nil)
         self.instance.isLeader.shouldBeFalse()
     }
 
-    func test_onLeaderChange_whenBecomingLeaderAndNodesPendingToBeDowned_shouldReturnMarkAsDown() throws {
-        let member = Cluster.Member(node: self.otherNode, status: .up)
-        self.instance._markAsDown.insert(member)
-        let directive = try self.instance.onLeaderChange(to: self.selfMember)
+    internal func test_onLeaderChange_whenBecomingLeaderAndNodesPendingToBeDowned_shouldReturnMarkAsDown() throws {
+        let member: Cluster.Member = Cluster.Member(node: self.otherNode, status: .operational)
+        self.instance.pendingDownMembers.insert(member)
+        let directive: DowningStrategyDirective = try self.instance.onLeaderChange(to: self.selfMember)
         guard case .markAsDown(let addresses) = directive.underlying else {
-            throw Boom()
+            throw Boom("")
         }
         addresses.count.shouldEqual(1)
         addresses.shouldContain(member)
@@ -111,24 +122,24 @@ final class TimeoutBasedDowningInstanceTests: XCTestCase {
     // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: onTimeout
 
-    func test_onTimeout_whenNotCurrentlyLeader_shouldInsertMemberAddressIntoMarkAsDown() throws {
-        let member = Cluster.Member(node: self.otherNode, status: .up)
+    internal func test_onTimeout_whenNotCurrentlyLeader_shouldInsertMemberAddressIntoMarkAsDown() throws {
+        let member: Cluster.Member = Cluster.Member(node: self.otherNode, status: .operational)
         self.instance.isLeader.shouldBeFalse()
-        self.instance._unreachable.insert(member)
-        let directive = self.instance.onTimeout(member)
+        self.instance.unreachableMembers.insert(member)
+        let directive: DowningStrategyDirective = self.instance.onTimeout(member)
 
-        guard case .none = directive.underlying else {
-            throw TestError("Expected directive to be .none")
+        guard case .unchanged = directive.underlying else {
+            throw TestError("Expected directive to be .unchanged")
         }
 
-        self.instance._markAsDown.shouldContain(member)
+        self.instance.pendingDownMembers.shouldContain(member)
     }
 
-    func test_onTimeout_whenCurrentlyLeader_shouldReturnMarkAsDown() throws {
-        let member = Cluster.Member(node: self.otherNode, status: .up)
+    internal func test_onTimeout_whenCurrentlyLeader_shouldReturnMarkAsDown() throws {
+        let member: Cluster.Member = Cluster.Member(node: self.otherNode, status: .operational)
         _ = try self.instance.membership.applyLeadershipChange(to: self.selfMember)
-        self.instance._unreachable.insert(member)
-        let directive = self.instance.onTimeout(member)
+        self.instance.unreachableMembers.insert(member)
+        let directive: DowningStrategyDirective = self.instance.onTimeout(member)
 
         guard case .markAsDown(let node) = directive.underlying else {
             throw TestError("Expected directive to be .markAsDown")
@@ -137,7 +148,7 @@ final class TimeoutBasedDowningInstanceTests: XCTestCase {
         node.shouldEqual([member])
     }
 
-    func test_onTimeout_shouldNotRetainAlreadyIssuedAsDownMembers() throws {
+    internal func test_onTimeout_shouldNotRetainAlreadyIssuedAsDownMembers() throws {
         _ = self.instance.membership.join(self.selfNode)
         _ = self.instance.membership.join(self.otherNode)
         _ = self.instance.membership.join(self.yetAnotherNode)
@@ -145,14 +156,14 @@ final class TimeoutBasedDowningInstanceTests: XCTestCase {
         // we are the leader, if a timeout happens, we should issue .down
         _ = try self.instance.onLeaderChange(to: self.selfMember)
 
-        let unreachableMember = self.otherMember.asUnreachable
+        let unreachableMember: Cluster.Member = self.otherMember.asUnreachable
 
-        let directive = self.instance.onMemberUnreachable(.init(member: unreachableMember))
+        let directive: DowningStrategyDirective = self.instance.onMemberUnreachable(.init(member: unreachableMember))
         guard case .startTimer = directive.underlying else {
             throw TestError("Expected .startTimer, but got \(directive)")
         }
 
-        let downDecision = self.instance.onTimeout(unreachableMember)
+        let downDecision: DowningStrategyDirective = self.instance.onTimeout(unreachableMember)
         guard case .markAsDown(let nodesToDown) = downDecision.underlying else {
             throw TestError("Expected .markAsDown, but got \(directive)")
         }
@@ -162,81 +173,85 @@ final class TimeoutBasedDowningInstanceTests: XCTestCase {
         // since we signalled the .down, no need to retain the member as "to be marked down" anymore,
         // if we never cleaned that set it could be technically a memory leak, continuing to accumulate
         // all members that we downed over the lifetime of the cluster.
-        self.instance._markAsDown.shouldBeEmpty()
+        self.instance.pendingDownMembers.shouldBeEmpty()
     }
 
     // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: onMemberRemoved
 
-    func test_onMemberRemoved_whenMemberWasUnreachable_shouldReturnCancelTimer() throws {
-        let member = Cluster.Member(node: self.otherNode, status: .up)
-        self.instance._unreachable.insert(member)
-        let directive = self.instance.onMemberRemoved(member)
+    internal func test_onMemberRemoved_whenMemberWasUnreachable_shouldReturnCancelTimer() throws {
+        let member: Cluster.Member = Cluster.Member(node: self.otherNode, status: .operational)
+        self.instance.unreachableMembers.insert(member)
+        let directive: DowningStrategyDirective = self.instance.onMemberRemoved(member)
 
         guard case .cancelTimer = directive.underlying else {
             throw TestError("Expected directive to be .cancelTimer")
         }
     }
 
-    func test_onMemberRemoved_whenMemberWasMarkAsDown_shouldReturnNone() throws {
-        let member = Cluster.Member(node: self.otherNode, status: .up)
-        self.instance._markAsDown.insert(member)
-        let directive = self.instance.onMemberRemoved(member)
+    internal func test_onMemberRemoved_whenMemberWasMarkAsDown_shouldReturnNone() throws {
+        let member: Cluster.Member = Cluster.Member(node: self.otherNode, status: .operational)
+        self.instance.pendingDownMembers.insert(member)
+        let directive: DowningStrategyDirective = self.instance.onMemberRemoved(member)
 
-        guard case .none = directive.underlying else {
-            throw TestError("Expected directive to be .none")
+        guard case .unchanged = directive.underlying else {
+            throw TestError("Expected directive to be .unchanged")
         }
     }
 
-    func test_onMemberRemoved_whenMemberNotKnown_shouldReturnNone() throws {
-        let member = Cluster.Member(node: self.otherNode, status: .up)
-        let directive = self.instance.onMemberRemoved(member)
+    internal func test_onMemberRemoved_whenMemberNotKnown_shouldReturnNone() throws {
+        let member: Cluster.Member = Cluster.Member(node: self.otherNode, status: .operational)
+        let directive: DowningStrategyDirective = self.instance.onMemberRemoved(member)
 
-        guard case .none = directive.underlying else {
-            throw TestError("Expected directive to be .none")
+        guard case .unchanged = directive.underlying else {
+            throw TestError("Expected directive to be .unchanged")
         }
     }
 
     // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: onMemberReachable
 
-    func test_onMemberReachable_whenMemberWasUnreachable_shouldReturnCancelTimer() throws {
-        let member = Cluster.Member(node: self.otherNode, status: .up)
-        self.instance._unreachable.insert(member)
-        let directive = self.instance.onMemberReachable(.init(member: member.asUnreachable))
+    internal func test_onMemberReachable_whenMemberWasUnreachable_shouldReturnCancelTimer() throws {
+        let member: Cluster.Member = Cluster.Member(node: self.otherNode, status: .operational)
+        self.instance.unreachableMembers.insert(member)
+        let directive: DowningStrategyDirective = self.instance.onMemberReachable(.init(member: member.asUnreachable))
 
         guard case .cancelTimer = directive.underlying else {
             throw TestError("Expected directive to be .cancelTimer")
         }
     }
 
-    func test_onMemberReachable_whenMemberWasMarkAsDown_shouldReturnNone() throws {
-        let member = Cluster.Member(node: self.otherNode, status: .up)
-        self.instance._markAsDown.insert(member)
-        let directive = self.instance.onMemberReachable(.init(member: member.asUnreachable))
+    internal func test_onMemberReachable_whenMemberWasMarkAsDown_shouldReturnNone() throws {
+        let member: Cluster.Member = Cluster.Member(node: self.otherNode, status: .operational)
+        self.instance.pendingDownMembers.insert(member)
+        let directive: DowningStrategyDirective = self.instance.onMemberReachable(.init(member: member.asUnreachable))
 
-        guard case .none = directive.underlying else {
-            throw TestError("Expected directive to be .none")
+        guard case .unchanged = directive.underlying else {
+            throw TestError("Expected directive to be .unchanged")
         }
     }
 
-    func test_onMemberReachable_whenMemberNotKnown_shouldReturnNone() throws {
-        let member = Cluster.Member(node: self.otherNode, status: .up)
-        let directive = self.instance.onMemberReachable(.init(member: member.asUnreachable))
+    internal func test_onMemberReachable_whenMemberNotKnown_shouldReturnNone() throws {
+        let member: Cluster.Member = Cluster.Member(node: self.otherNode, status: .operational)
+        let directive: DowningStrategyDirective = self.instance.onMemberReachable(.init(member: member.asUnreachable))
 
-        guard case .none = directive.underlying else {
-            throw TestError("Expected directive to be .none")
+        guard case .unchanged = directive.underlying else {
+            throw TestError("Expected directive to be .unchanged")
         }
     }
 
     // ==== ------------------------------------------------------------------------------------------------------------
     // MARK: onMemberUnreachable
 
-    func test_onMemberUnreachable_shouldAddAddressOfMemberToUnreachableSet() throws {
-        let member = Cluster.Member(node: self.otherNode, status: .up)
-        guard case .startTimer = self.instance.onMemberUnreachable(.init(member: member.asUnreachable)).underlying else {
+    internal func test_onMemberUnreachable_shouldAddAddressOfMemberToUnreachableSet() throws {
+        let member: Cluster.Member = Cluster.Member(node: self.otherNode, status: .operational)
+        guard
+            case .startTimer = self.instance.onMemberUnreachable(
+                .init(member: member.asUnreachable)
+            ).underlying
+        else {
             throw TestError("Expected directive to be .startTimer")
         }
-        self.instance._unreachable.shouldContain(member.asUnreachable)
+        self.instance.unreachableMembers.shouldContain(member.asUnreachable)
     }
 }

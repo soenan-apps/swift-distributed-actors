@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,30 +10,30 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import DistributedActorsTestKit
 import XCTest
 
 @testable import DistributedCluster
 
-class CustomStringInterpolationTests: XCTestCase {
-    func test_leftPadTo_whenValueShorterThanPadTo() {
-        let padded = "\("hello world", leftPadTo: 16)"
+internal final class CustomStringInterpolationTests: XCTestCase {
+    internal func test_leftPadTo_whenValueShorterThanPadTo() {
+        let padded: String = "\("hello world", leftPadTo: 16)"
         padded.count.shouldEqual(16)
         padded.shouldEqual("     hello world")
     }
 
-    func test_leftPadTo_whenValueLongerThanPadTo() {
-        let phrase = "hello world"
-        let padded = "\(phrase, leftPadTo: 4)"
+    internal func test_leftPadTo_whenValueLongerThanPadTo() {
+        let phrase: String = "hello world"
+        let padded: String = "\(phrase, leftPadTo: 4)"
         padded.count.shouldEqual(phrase.count)
         padded.shouldEqual(phrase)
     }
 
-    func test_leftPadTo_whenValueEqualThanPadTo() {
-        let phrase = "hello world"
-        let padded = "\(phrase, leftPadTo: phrase.count)"
+    internal func test_leftPadTo_whenValueEqualThanPadTo() {
+        let phrase: String = "hello world"
+        let padded: String = "\(phrase, leftPadTo: phrase.count)"
         padded.count.shouldEqual(phrase.count)
         padded.shouldEqual(phrase)
     }

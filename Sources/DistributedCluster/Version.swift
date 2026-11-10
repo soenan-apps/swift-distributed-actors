@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 extension ClusterSystem {
     /// Version advertised to other nodes while joining the cluster.
@@ -23,19 +23,19 @@ extension ClusterSystem {
         public var minor: UInt8
         public var patch: UInt8
 
-        init(reserved: UInt8, major: UInt8, minor: UInt8, patch: UInt8) {
-            self.reserved = reserved
-            self.major = major
-            self.minor = minor
-            self.patch = patch
-        }
-
         public var description: String {
             "Version(\(self.major).\(self.minor).\(self.patch), reserved:\(self.reserved))"
         }
 
         public var versionString: String {
             "\(self.major).\(self.minor).\(self.patch)"
+        }
+
+        internal init(reserved: UInt8, major: UInt8, minor: UInt8, patch: UInt8) {
+            self.reserved = reserved
+            self.major = major
+            self.minor = minor
+            self.patch = patch
         }
     }
 }

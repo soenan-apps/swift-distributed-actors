@@ -1,0 +1,54 @@
+// ===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift Distributed Actors open source project
+//
+// Copyright (c) 2018-2022 Apple Inc. and the Swift Distributed Actors project authors
+// Licensed under Apache License v2.0
+//
+// See LICENSE.txt for license information
+// See CONTRIBUTORS.txt for the list of Swift Distributed Actors project authors
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// ===----------------------------------------------------------------------===//
+
+import Distributed
+import DistributedCluster
+import Logging
+import NIO
+
+//
+// Swift Distributed Actors implementation of the classic "Dining Philosophers" problem.
+//
+// The goal of this implementation is not to be efficient or solve the live-lock,
+// but rather to be a nice application that continuously "does something" with
+// messaging between various actors.
+//
+// The implementation is based on the following take on the problem:
+// http://www.dalnefre.com/wp/2010/08/dining-philosophers-in-humus
+//
+
+internal typealias DefaultDistributedActorSystem = ClusterSystem
+
+@main
+internal enum Main {
+    internal static func main() async throws {
+        print("===-----------------------------------------------------===")
+        print("|            Dining Philosophers Sample App               |")
+        print("|                                                         |")
+        print("| USAGE: swift run SampleDiningPhilosophers [dist]        |")
+        print("===-----------------------------------------------------===")
+
+        LoggingSystem.bootstrap { label in SamplePrettyLogHandler(label: label) }
+
+        let duration: Duration = .seconds(20)
+
+        switch CommandLine.arguments.dropFirst().first {
+        case "dist", "distributed":
+            try await DistributedDiningPhilosophers().run(for: duration)
+
+        default:
+            await DiningPhilosophers().run(for: duration)
+        }
+    }
+}

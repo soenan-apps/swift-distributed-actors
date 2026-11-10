@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,28 +10,32 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Distributed
 import DistributedCluster
 import Logging
 
-distributed actor Fork: CustomStringConvertible {
+internal enum ForkError: Error, Codable {
+    case puttingBackNotTakenFork
+}
+
+internal distributed actor Fork: CustomStringConvertible {
     private lazy var log: Logger = {
-        var l = Logger(actor: self)
-        l[metadataKey: "name"] = "\(self.name)"
-        return l
+        var logger: Logger = Logger(actor: self)
+        logger[metadataKey: "name"] = "\(name)"
+        return logger
     }()
 
     private let name: String
     private var isTaken: Bool = false
 
-    init(name: String, actorSystem: ActorSystem) {
+    internal init(name: String, actorSystem: ActorSystem) {
         self.actorSystem = actorSystem
         self.name = name
     }
 
-    distributed func take() -> Bool {
+    internal distributed func take() -> Bool {
         if self.isTaken {
             return false
         }
@@ -40,15 +44,11 @@ distributed actor Fork: CustomStringConvertible {
         return true
     }
 
-    distributed func putBack() throws {
+    internal distributed func putBack() throws {
         guard self.isTaken else {
             self.log.error("Attempted to put back fork that was not taken!")
             throw ForkError.puttingBackNotTakenFork
         }
         self.isTaken = false
     }
-}
-
-enum ForkError: Error, Codable {
-    case puttingBackNotTakenFork
 }

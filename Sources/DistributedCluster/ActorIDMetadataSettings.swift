@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift Distributed Actors open source project
 //
@@ -10,50 +10,48 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-//===----------------------------------------------------------------------===//
+// ===----------------------------------------------------------------------===//
 
 import Logging
 import NIO
 import NIOSSL
-import SWIM
 import ServiceDiscovery
+import SWIM
 
 import class Foundation.ProcessInfo
 
+internal enum AutomaticActorMetadataKind: Hashable {
+    case typeName
+}
+
 /// Configures default actor id metadta behavior, like which metadata should be propagated cross process and which not.
 internal struct ActorIDMetadataSettings {
-    public static var `default`: ActorIDMetadataSettings {
+    /// Metadata that the actor system can add automatically.
+    public struct AutoIDMetadata {
+        /// Tags each actor with a human-readable type name.
+        internal static let typeName: Self = Self(underlying: .typeName)
+
+        internal var underlying: AutomaticActorMetadataKind
+    }
+
+    internal static var `default`: Self {
         .init()
     }
 
-    /// Configures metadata which should be
-    public struct AutoIDMetadata {
-        internal enum _AutoIDMetadata: Hashable {
-            case typeName
-        }
-
-        internal var underlying: _AutoIDMetadata
-
-        /// Tag every actor with an additional human-readable type name
-        // TODO: expose this eventually
-        internal static let typeName = Self(underlying: .typeName)
-    }
-
-    // TODO: expose this eventually
     /// List of metadata which the system should automatically include in an `ActorID` for types it manages.
     internal var autoIncludedMetadata: [AutoIDMetadata] = []
 
     /// What type of tags, known and defined by the cluster system itself, should be automatically propagated.
-    /// Other types of tags, such as user-defined tags, must be propagated by declaring apropriate functions for ``encodeCustomMetadata`` and ``decodeCustomMetadata``.
+    /// User-defined tags require ``encodeCustomMetadata`` and ``decodeCustomMetadata`` implementations.
     internal var propagateMetadata: Set<String> = [
-        ActorMetadataKeys.__instance.path.id,
-        ActorMetadataKeys.__instance.type.id,
-        ActorMetadataKeys.__instance.wellKnown.id,
+        ActorMetadataKeys.defaultInstance.path.id,
+        ActorMetadataKeys.defaultInstance.type.id,
+        ActorMetadataKeys.defaultInstance.wellKnown.id,
     ]
 
-    internal var encodeCustomMetadata: (ActorMetadata, inout KeyedEncodingContainer<ActorCoding.MetadataKeys>) throws -> Void =
-        { _, _ in () }
+    internal var encodeCustomMetadata:
+        (ActorMetadata, inout KeyedEncodingContainer<ActorCoding.MetadataKeys>) throws -> Void = { _, _ in () }
 
-    internal var decodeCustomMetadata: ((KeyedDecodingContainer<ActorCoding.MetadataKeys>, ActorMetadata) throws -> Void) =
-        { _, _ in () }
+    internal var decodeCustomMetadata:
+        (KeyedDecodingContainer<ActorCoding.MetadataKeys>, ActorMetadata) throws -> Void = { _, _ in () }
 }
