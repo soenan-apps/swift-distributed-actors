@@ -66,7 +66,7 @@ The `cluster.members` gauges also distinguish `status="up"` from `status="joinin
 
 ## Development
 
-このforkの開発にはSwift 6.4.1を使います。cluster targetのSwift 5言語モードは`Package.swift`で指定します。lintと通常のコンパイルはホスト上で行い、Static Linux SDKを使う製品imageのビルドとは分けます。
+このforkの開発にはSwift 6.4.2を使います。cluster targetのSwift 5言語モードは`Package.swift`で指定します。lintと通常のコンパイルはホスト上で行い、Static Linux SDKを使う製品imageのビルドとは分けます。
 
 ```sh
 swift build --build-tests -Xswiftc -warnings-as-errors
